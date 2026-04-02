@@ -1,0 +1,1825 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Snakeball</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { width: 100%; height: 100%; overflow: hidden; background: #0a0a1a; font-family: 'Segoe UI', Arial, sans-serif; touch-action: none; }
+canvas { display: block; width: 100%; height: 100%; }
+
+#ui-overlay {
+    position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+    pointer-events: none; z-index: 10;
+}
+#ui-overlay > * { pointer-events: auto; }
+
+#main-menu {
+    position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    background: rgba(10, 10, 26, 0.85);
+}
+#main-menu h1 {
+    font-size: 60px; font-weight: 900; letter-spacing: 4px;
+    background: linear-gradient(135deg, #67b0d1, #4ad585, #ebc85e, #e87352, #a965aa);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    background-clip: text; margin-bottom: 10px; text-transform: uppercase;
+}
+#main-menu .subtitle { color: #63f8cf; font-size: 16px; margin-bottom: 40px; opacity: 0.8; }
+#tap-to-play {
+    font-size: 28px; color: #fff; cursor: pointer; padding: 15px 50px;
+    border: 2px solid #63f8cf; border-radius: 30px; background: transparent;
+    transition: all 0.2s; animation: pulse 1.5s ease-in-out infinite;
+}
+#tap-to-play:hover { background: rgba(99, 248, 207, 0.15); transform: scale(1.05); }
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.6; } }
+#best-score-display { color: #aaa; font-size: 14px; margin-top: 20px; }
+#sound-toggle {
+    position: absolute; bottom: 20px; right: 20px; background: none; border: none;
+    color: #fff; font-size: 24px; cursor: pointer; opacity: 0.7;
+}
+
+#game-ui {
+    position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+    display: none; pointer-events: none;
+}
+#score-display {
+    position: absolute; top: 20px; left: 50%; transform: translateX(-50%);
+    color: #fff; font-size: 36px; font-weight: 700; text-shadow: 0 2px 10px rgba(0,0,0,0.5);
+}
+#ball-count {
+    position: absolute; top: 65px; left: 50%; transform: translateX(-50%);
+    color: #63f8cf; font-size: 20px; font-weight: 600;
+}
+#mega-timer-wrap {
+    position: absolute; top: 95px; left: 50%; transform: translateX(-50%);
+    width: 160px; height: 12px; background: rgba(255,255,255,0.2);
+    border-radius: 6px; overflow: hidden; display: none;
+    box-shadow: 0 0 10px rgba(255,170,0,0.5);
+}
+#mega-timer-bar {
+    height: 100%; width: 100%; border-radius: 4px;
+    background: linear-gradient(90deg, #ffaa00, #ffdd44);
+    transition: width 0.1s linear;
+}
+#score-popups { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+.score-popup {
+    position: absolute; color: #fff; font-size: 22px; font-weight: 700;
+    text-shadow: 0 0 8px rgba(99,248,207,0.8); pointer-events: none;
+    animation: popupFloat 1.3s ease-out forwards;
+}
+@keyframes popupFloat {
+    0% { opacity: 1; transform: translateY(0); }
+    100% { opacity: 0; transform: translateY(-80px); }
+}
+
+#result-screen {
+    position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+    display: none; flex-direction: column; align-items: center; justify-content: center;
+    background: rgba(10, 10, 26, 0.9);
+}
+#result-screen h2 { color: #e87352; font-size: 28px; margin-bottom: 20px; }
+#final-score { color: #fff; font-size: 64px; font-weight: 900; margin-bottom: 10px; }
+#new-best { color: #ebc85e; font-size: 18px; margin-bottom: 10px; display: none; }
+#best-score-result { color: #aaa; font-size: 16px; margin-bottom: 40px; }
+#play-again {
+    font-size: 22px; color: #fff; cursor: pointer; padding: 12px 40px;
+    border: 2px solid #63f8cf; border-radius: 25px; background: transparent;
+    transition: all 0.2s;
+}
+#play-again:hover { background: rgba(99, 248, 207, 0.15); }
+
+#tutorial-overlay {
+    position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+    display: none; pointer-events: none;
+}
+#tutorial-text {
+    position: absolute; bottom: 120px; left: 50%; transform: translateX(-50%);
+    color: #fff; font-size: 20px; text-align: center; white-space: nowrap;
+    text-shadow: 0 2px 10px rgba(0,0,0,0.8);
+    animation: tutPulse 1s ease-in-out infinite;
+}
+@keyframes tutPulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
+
+#touch-area {
+    position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+    display: none;
+}
+</style>
+</head>
+<body>
+
+<div id="ui-overlay">
+    <div id="main-menu">
+        <h1>Snakeball</h1>
+        <div class="subtitle">Endless Runner</div>
+        <button id="tap-to-play">TAP TO PLAY</button>
+        <div id="best-score-display"></div>
+        <button id="sound-toggle">🔊</button>
+    </div>
+
+    <div id="game-ui">
+        <div id="score-display">0</div>
+        <div id="ball-count"></div>
+        <div id="mega-timer-wrap">
+            <div id="mega-timer-bar"></div>
+        </div>
+        <div id="score-popups"></div>
+    </div>
+
+    <div id="tutorial-overlay">
+        <div id="tutorial-text"></div>
+    </div>
+
+    <div id="touch-area"></div>
+
+    <div id="result-screen">
+        <h2>GAME OVER</h2>
+        <div id="final-score">0</div>
+        <div id="new-best">NEW BEST!</div>
+        <div id="best-score-result"></div>
+        <button id="play-again">PLAY AGAIN</button>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+
+<script>
+
+// ============================================================
+// CONSTANTS (matching Unity original)
+// ============================================================
+const NUMBER_OF_LANES = 5;
+const INITIAL_BALL_COUNT = 6;
+const INITIAL_SPEED = 12;
+const MAX_SPEED = 28;
+const SPEED_UP_DURATION = 60;
+const MEGA_BALL_SPEED_MULT = 1.5; // velocity *= this during mega
+const MEGA_BALL_DURATION = 4;
+const SIDE_SPEED = 10;
+const JUMP_SPEED = 11;
+const GRAVITY = 28;
+const BOUNCE_SPEED = 1.5;
+const HIT_BACK_DISTANCE = 0.3;
+const WALL_SCORE = 2;
+const IRON_CUBE_TYPE = 6;
+const IRON_CUBE_SCORE = 10;
+const ROAD_SEGMENT_LENGTH = 4;
+const ROAD_WIDTH = 5.5;
+const LANE_WIDTH = 1.0;
+const VISIBLE_DISTANCE = 80;
+const DESPAWN_DISTANCE = -5;
+
+// Cube colors (from Unity)
+const CUBE_COLORS = [
+    new THREE.Color(103/255, 176/255, 209/255),
+    new THREE.Color(74/255, 213/255, 133/255),
+    new THREE.Color(235/255, 200/255, 94/255),
+    new THREE.Color(232/255, 115/255, 82/255),
+    new THREE.Color(169/255, 101/255, 170/255),
+    new THREE.Color(103/255, 75/255, 255/255),
+];
+const IRON_CUBE_COLOR = new THREE.Color(0.6, 0.0, 0.0);
+
+// Cube HP ranges per type*3+level index (from cubecount.json)
+const CUBE_HP_RANGES = [
+    [1,1],[1,2],[2,3],[2,4],[3,5],[4,6],[5,8],[6,10],[8,12],
+    [10,14],[12,16],[14,18],[16,20],[18,22],[20,25],[22,28],[25,30],[28,35]
+];
+
+// Difficulty -> cube types (from cubeType.json)
+const CUBE_TYPE_MAP = {
+    1:[1,2], 2:[1,3], 3:[1,2,4], 4:[1,3,4], 5:[2,4,5], 6:[2,3,5,7], 7:[2,4,5,6,7]
+};
+
+// ============================================================
+// AUDIO (Web Audio API synth sounds)
+// ============================================================
+let audioCtx = null;
+let soundEnabled = true;
+
+function initAudio() {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+}
+
+function playSound(type) {
+    if (!soundEnabled || !audioCtx) return;
+    const now = audioCtx.currentTime;
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+
+    switch(type) {
+        case 'jump':
+            osc.type = 'sine'; osc.frequency.setValueAtTime(400, now);
+            osc.frequency.exponentialRampToValueAtTime(800, now+0.15);
+            gain.gain.setValueAtTime(0.15, now); gain.gain.exponentialRampToValueAtTime(0.001, now+0.2);
+            osc.start(now); osc.stop(now+0.2); break;
+        case 'move':
+            osc.type = 'sine'; osc.frequency.setValueAtTime(300, now);
+            osc.frequency.exponentialRampToValueAtTime(350, now+0.08);
+            gain.gain.setValueAtTime(0.08, now); gain.gain.exponentialRampToValueAtTime(0.001, now+0.1);
+            osc.start(now); osc.stop(now+0.1); break;
+        case 'hitCube':
+            osc.type = 'square'; osc.frequency.setValueAtTime(200, now);
+            osc.frequency.exponentialRampToValueAtTime(100, now+0.1);
+            gain.gain.setValueAtTime(0.1, now); gain.gain.exponentialRampToValueAtTime(0.001, now+0.12);
+            osc.start(now); osc.stop(now+0.12); break;
+        case 'breakCube':
+            osc.type = 'sawtooth'; osc.frequency.setValueAtTime(300, now);
+            osc.frequency.exponentialRampToValueAtTime(50, now+0.3);
+            gain.gain.setValueAtTime(0.12, now); gain.gain.exponentialRampToValueAtTime(0.001, now+0.3);
+            osc.start(now); osc.stop(now+0.3); break;
+        case 'getItem':
+            osc.type = 'sine'; osc.frequency.setValueAtTime(500, now);
+            osc.frequency.exponentialRampToValueAtTime(1000, now+0.15);
+            gain.gain.setValueAtTime(0.12, now); gain.gain.exponentialRampToValueAtTime(0.001, now+0.2);
+            osc.start(now); osc.stop(now+0.2); break;
+        case 'getMega':
+            osc.type = 'sine'; osc.frequency.setValueAtTime(400, now);
+            osc.frequency.exponentialRampToValueAtTime(1200, now+0.3);
+            gain.gain.setValueAtTime(0.15, now); gain.gain.exponentialRampToValueAtTime(0.001, now+0.4);
+            osc.start(now); osc.stop(now+0.4); break;
+        case 'hitWall':
+            osc.type = 'triangle'; osc.frequency.setValueAtTime(150, now);
+            gain.gain.setValueAtTime(0.1, now); gain.gain.exponentialRampToValueAtTime(0.001, now+0.15);
+            osc.start(now); osc.stop(now+0.15); break;
+        case 'ironCube':
+            osc.type = 'sawtooth'; osc.frequency.setValueAtTime(80, now);
+            gain.gain.setValueAtTime(0.15, now); gain.gain.exponentialRampToValueAtTime(0.001, now+0.4);
+            osc.start(now); osc.stop(now+0.4); break;
+        case 'gameOver':
+            osc.type = 'sawtooth'; osc.frequency.setValueAtTime(300, now);
+            osc.frequency.exponentialRampToValueAtTime(50, now+0.6);
+            gain.gain.setValueAtTime(0.12, now); gain.gain.exponentialRampToValueAtTime(0.001, now+0.7);
+            osc.start(now); osc.stop(now+0.7); break;
+        case 'highscore':
+            osc.type = 'sine'; osc.frequency.setValueAtTime(500, now);
+            osc.frequency.setValueAtTime(600, now+0.1);
+            osc.frequency.setValueAtTime(800, now+0.2);
+            osc.frequency.setValueAtTime(1000, now+0.3);
+            gain.gain.setValueAtTime(0.12, now); gain.gain.exponentialRampToValueAtTime(0.001, now+0.5);
+            osc.start(now); osc.stop(now+0.5); break;
+    }
+}
+
+// ============================================================
+// THREE.JS SETUP
+// ============================================================
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0a0a1a);
+scene.fog = new THREE.Fog(0x0a0a1a, 40, 80);
+
+const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 200);
+camera.position.set(0, 4.5, -6);
+camera.lookAt(0, 0.5, 10);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+document.body.prepend(renderer.domElement);
+
+// Lights
+const ambientLight = new THREE.AmbientLight(0x334466, 0.6);
+scene.add(ambientLight);
+
+const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+dirLight.position.set(5, 15, 10);
+dirLight.castShadow = true;
+dirLight.shadow.mapSize.set(1024, 1024);
+dirLight.shadow.camera.near = 0.5;
+dirLight.shadow.camera.far = 80;
+dirLight.shadow.camera.left = -15;
+dirLight.shadow.camera.right = 15;
+dirLight.shadow.camera.top = 15;
+dirLight.shadow.camera.bottom = -15;
+scene.add(dirLight);
+
+const hemiLight = new THREE.HemisphereLight(0x3344aa, 0x112233, 0.4);
+scene.add(hemiLight);
+
+// ============================================================
+// MATERIALS
+// ============================================================
+const roadMaterial = new THREE.MeshStandardMaterial({
+    color: 0x1a1a2e, roughness: 0.8, metalness: 0.1
+});
+const roadLineMaterial = new THREE.MeshStandardMaterial({
+    color: 0x2a2a4e, roughness: 0.6, emissive: 0x111122, emissiveIntensity: 0.3
+});
+const borderMaterial = new THREE.MeshStandardMaterial({
+    color: 0x63f8cf, emissive: 0x63f8cf, emissiveIntensity: 0.5, roughness: 0.3
+});
+const ballMaterial = new THREE.MeshStandardMaterial({
+    color: 0xffffff, roughness: 0.2, metalness: 0.5
+});
+const megaBallMaterial = new THREE.MeshStandardMaterial({
+    color: 0xffdd44, emissive: 0xffaa00, emissiveIntensity: 0.8, roughness: 0.1, metalness: 0.8
+});
+const wallMaterial = new THREE.MeshStandardMaterial({
+    color: 0x3a3a5e, roughness: 0.5, metalness: 0.3
+});
+const freeBallItemMaterial = new THREE.MeshStandardMaterial({
+    color: 0x4ad585, emissive: 0x4ad585, emissiveIntensity: 0.4, roughness: 0.2
+});
+const megaBallItemMaterial = new THREE.MeshStandardMaterial({
+    color: 0xebc85e, emissive: 0xebc85e, emissiveIntensity: 0.6, roughness: 0.1, metalness: 0.5
+});
+
+// ============================================================
+// GEOMETRIES (shared)
+// ============================================================
+const ballGeometry = new THREE.SphereGeometry(0.35, 16, 12);
+const smallBallGeometry = new THREE.SphereGeometry(0.25, 12, 8);
+const cubeGeometry = new THREE.BoxGeometry(0.8, 0.8, 0.8);
+const largeCubeGeometry = new THREE.BoxGeometry(1.2, 1.2, 1.2);
+const wallGeometry = new THREE.BoxGeometry(1.0, 1.2, 1.0);
+// roadGeometry and borderGeometry replaced by continuous road mesh below
+const itemGeometry = new THREE.SphereGeometry(0.3, 12, 8);
+const megaItemGeometry = new THREE.SphereGeometry(0.4, 16, 12);
+const particleGeometry = new THREE.SphereGeometry(0.08, 6, 4);
+
+// ============================================================
+// GAME STATE
+// ============================================================
+let gameState = 'menu'; // menu, playing, tutorial, result
+let score = 0;
+let gameTimer = 0;
+let ballCount = INITIAL_BALL_COUNT;
+let velocity = new THREE.Vector3(0, 0, INITIAL_SPEED);
+let currentLane = 2;
+let nextLane = 2;
+let canJump = true;
+let canSwipe = true;
+let readyToBounceOnGround = true;
+let readyToBounceOnWall = true;
+let hittingCube = false;
+let lastCube = null;
+let didJumpDuringCollision = false;
+let megaBallTimer = 0;
+let preMegaBallSpeed = INITIAL_SPEED;
+let bestScore = parseInt(localStorage.getItem('snakeball_best') || '0');
+let flickerTimer = 0;
+let megaFlickerTimer = 0;
+let playerWorldZ = 0; // track ball's world position for spawning
+let cameraShake = 0;  // camera shake intensity
+
+// Tutorial
+let tutorialStep = 0;
+const tutorialMessages = [
+    "SWIPE RIGHT →",
+    "← SWIPE LEFT",
+    "SWIPE UP ↑ TO JUMP"
+];
+let tutorialWaiting = true;
+
+// ============================================================
+// OBJECTS
+// ============================================================
+
+// Main ball group
+const BALL_RADIUS = 0.35;
+const BALL_GROUND_Y = BALL_RADIUS; // sit on top of road
+
+const mainBallGroup = new THREE.Group();
+scene.add(mainBallGroup);
+
+const mainBallMesh = new THREE.Mesh(ballGeometry, ballMaterial.clone());
+mainBallMesh.castShadow = true;
+mainBallMesh.position.y = 0; // local offset inside group
+mainBallGroup.add(mainBallMesh);
+
+// Mega ball overlay
+const megaBallMesh = new THREE.Mesh(new THREE.SphereGeometry(0.55, 20, 14), megaBallMaterial.clone());
+megaBallMesh.visible = false;
+mainBallGroup.add(megaBallMesh);
+
+// Ball count sprite (attached to ball)
+const ballCountCanvas = document.createElement('canvas');
+ballCountCanvas.width = 128; ballCountCanvas.height = 64;
+const ballCountTexture = new THREE.CanvasTexture(ballCountCanvas);
+const ballCountSpriteMat = new THREE.SpriteMaterial({ map: ballCountTexture, transparent: true, depthTest: false });
+const ballCountSprite = new THREE.Sprite(ballCountSpriteMat);
+ballCountSprite.scale.set(1.2, 0.6, 1);
+ballCountSprite.position.set(0.6, 0.6, 0);
+mainBallGroup.add(ballCountSprite);
+
+function updateBallCountSprite() {
+    const ctx = ballCountCanvas.getContext('2d');
+    ctx.clearRect(0, 0, 128, 64);
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 40px Arial';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.strokeStyle = '#000000';
+    ctx.lineWidth = 4;
+    const text = '' + ballCount;
+    ctx.strokeText(text, 64, 32);
+    ctx.fillText(text, 64, 32);
+    ballCountTexture.needsUpdate = true;
+}
+
+// Following balls
+const followingBalls = [];
+for (let i = 0; i < 30; i++) {
+    const mesh = new THREE.Mesh(smallBallGeometry, ballMaterial.clone());
+    mesh.castShadow = true;
+    mesh.visible = false;
+    scene.add(mesh);
+    followingBalls.push({ mesh, active: false });
+}
+
+// Continuous road mesh with subdivisions for smooth curves
+const ROAD_LENGTH = 90;
+const ROAD_SEGMENTS_Z = 120;
+
+// All road elements use PlaneGeometry rotated to XZ plane
+// After rotateX(-PI/2): local X = world X, local Y = world Z, local Z = world -Y
+
+// Main road surface
+const roadGeo = new THREE.PlaneGeometry(ROAD_WIDTH, ROAD_LENGTH, 1, ROAD_SEGMENTS_Z);
+roadGeo.rotateX(-Math.PI / 2);
+const roadMesh = new THREE.Mesh(roadGeo, roadMaterial);
+roadMesh.receiveShadow = true;
+scene.add(roadMesh);
+
+// All strips: lane lines + borders, all as thin planes on XZ
+const roadStrips = [];
+
+// Lane lines at x = -1.5, -0.5, 0.5, 1.5
+for (const lx of [-1.5, -0.5, 0.5, 1.5]) {
+    const geo = new THREE.PlaneGeometry(0.04, ROAD_LENGTH, 1, ROAD_SEGMENTS_Z);
+    geo.rotateX(-Math.PI / 2);
+    const mesh = new THREE.Mesh(geo, roadLineMaterial);
+    scene.add(mesh);
+    roadStrips.push({ mesh, geo, baseX: lx, baseY: 0.005, basePositions: geo.attributes.position.array.slice() });
+}
+
+// Border lines at x = +/- ROAD_WIDTH/2
+for (const bx of [-ROAD_WIDTH / 2, ROAD_WIDTH / 2]) {
+    const geo = new THREE.PlaneGeometry(0.1, ROAD_LENGTH, 1, ROAD_SEGMENTS_Z);
+    geo.rotateX(-Math.PI / 2);
+    const mesh = new THREE.Mesh(geo, borderMaterial.clone());
+    scene.add(mesh);
+    roadStrips.push({ mesh, geo, baseX: bx, baseY: 0.005, basePositions: geo.attributes.position.array.slice() });
+}
+
+const roadBasePositions = roadGeo.attributes.position.array.slice();
+const roadSegments = [];
+
+// Cubes pool
+const cubes = [];
+const CUBE_POOL_SIZE = 60;
+for (let i = 0; i < CUBE_POOL_SIZE; i++) {
+    const mesh = new THREE.Mesh(cubeGeometry, new THREE.MeshStandardMaterial({
+        roughness: 0.3, metalness: 0.2
+    }));
+    mesh.castShadow = true;
+    mesh.visible = false;
+    scene.add(mesh);
+
+    // HP text sprite
+    const canvas = document.createElement('canvas');
+    canvas.width = 64; canvas.height = 64;
+    const texture = new THREE.CanvasTexture(canvas);
+    const spriteMat = new THREE.SpriteMaterial({ map: texture, transparent: true });
+    const sprite = new THREE.Sprite(spriteMat);
+    sprite.scale.set(0.5, 0.5, 1);
+    sprite.position.y = 0.6;
+    mesh.add(sprite);
+
+    cubes.push({
+        mesh, sprite, canvas, texture, active: false,
+        hp: 1, type: 0, score: 1, originalPos: new THREE.Vector3(),
+        shakeTimer: 0, size: 1
+    });
+}
+
+// Walls pool
+const walls = [];
+const WALL_POOL_SIZE = 20;
+for (let i = 0; i < WALL_POOL_SIZE; i++) {
+    const mesh = new THREE.Mesh(wallGeometry, wallMaterial.clone());
+    mesh.castShadow = true;
+    mesh.visible = false;
+    scene.add(mesh);
+    walls.push({ mesh, active: false, side: 0, originalPos: new THREE.Vector3() });
+}
+
+// Free ball items pool
+const freeBallItems = [];
+const FREEBALL_POOL_SIZE = 15;
+for (let i = 0; i < FREEBALL_POOL_SIZE; i++) {
+    const mesh = new THREE.Mesh(itemGeometry, freeBallItemMaterial.clone());
+    mesh.visible = false;
+    scene.add(mesh);
+
+    // Count sprite
+    const canvas = document.createElement('canvas');
+    canvas.width = 64; canvas.height = 64;
+    const texture = new THREE.CanvasTexture(canvas);
+    const spriteMat = new THREE.SpriteMaterial({ map: texture, transparent: true });
+    const sprite = new THREE.Sprite(spriteMat);
+    sprite.scale.set(0.5, 0.5, 1);
+    sprite.position.y = 0.5;
+    mesh.add(sprite);
+
+    freeBallItems.push({ mesh, sprite, canvas, texture, active: false, count: 1, originalPos: new THREE.Vector3() });
+}
+
+// Mega ball items pool
+const megaBallItems = [];
+const MEGABALL_POOL_SIZE = 5;
+for (let i = 0; i < MEGABALL_POOL_SIZE; i++) {
+    const mesh = new THREE.Mesh(megaItemGeometry, megaBallItemMaterial.clone());
+    mesh.visible = false;
+    scene.add(mesh);
+    megaBallItems.push({ mesh, active: false, originalPos: new THREE.Vector3() });
+}
+
+// Particles pool
+const particles = [];
+const PARTICLE_POOL_SIZE = 80;
+for (let i = 0; i < PARTICLE_POOL_SIZE; i++) {
+    const mesh = new THREE.Mesh(particleGeometry, new THREE.MeshStandardMaterial({
+        roughness: 0.3, emissiveIntensity: 0.5
+    }));
+    mesh.visible = false;
+    scene.add(mesh);
+    particles.push({ mesh, active: false, vel: new THREE.Vector3(), life: 0 });
+}
+
+// ============================================================
+// LEVEL GENERATION
+// ============================================================
+let nextSpawnZ = 0;
+let patternIndex = 0;
+let difficulty = 1;
+let spawnedPatternCount = 0;
+
+// Pattern types
+const PATTERN_EMPTY = 0;
+const PATTERN_CUBES_SINGLE = 1;
+const PATTERN_CUBES_ROW = 2;
+const PATTERN_WALL_LEFT = 3;
+const PATTERN_WALL_RIGHT = 4;
+const PATTERN_CUBES_ZIGZAG = 5;
+const PATTERN_CUBES_WALL = 6;
+const PATTERN_FREEBALL = 7;
+const PATTERN_MEGABALL = 8;
+const PATTERN_CUBES_DOUBLE = 9;
+const PATTERN_IRON_CUBE = 10;
+
+function getDifficulty() {
+    const t = gameTimer;
+    if (t < 5) return 1;
+    if (t < 12) return 2;
+    if (t < 22) return 3;
+    if (t < 35) return 4;
+    if (t < 50) return 5;
+    if (t < 70) return 6;
+    return 7;
+}
+
+function getCubeLevel() {
+    const d = getDifficulty();
+    if (d <= 2) return 0;
+    if (d <= 4) return 1;
+    return 2;
+}
+
+function getRandomCubeType() {
+    const d = getDifficulty();
+    const types = CUBE_TYPE_MAP[d] || [1, 2];
+    const t = types[Math.floor(Math.random() * types.length)] - 1;
+    return t;
+}
+
+function getCubeHP(cubeType, level) {
+    const index = Math.min(cubeType * 3 + level, CUBE_HP_RANGES.length - 1);
+    const [minHP, maxHP] = CUBE_HP_RANGES[index];
+    return Math.floor(Math.random() * (maxHP - minHP + 1)) + minHP;
+}
+
+const PATTERN_GAUNTLET = 11;      // multiple walls in sequence
+const PATTERN_CUBE_STORM = 12;    // cubes scattered across many lanes
+const PATTERN_NARROW_PASS = 13;   // walls on both sides, one lane gap
+
+function generatePattern() {
+    const d = getDifficulty();
+    spawnedPatternCount++;
+
+    // Collectibles every 2-3 patterns
+    if (spawnedPatternCount % 2 === 0) {
+        const megaChance = 0.05 + d * 0.01;
+        return Math.random() < megaChance ? PATTERN_MEGABALL : PATTERN_FREEBALL;
+    }
+
+    const patterns = [];
+    // Always have basic obstacles
+    patterns.push(PATTERN_CUBES_SINGLE);
+
+    if (d >= 1) patterns.push(PATTERN_CUBES_ROW, PATTERN_WALL_LEFT);
+    if (d >= 2) patterns.push(PATTERN_CUBES_DOUBLE, PATTERN_WALL_RIGHT, PATTERN_CUBES_ZIGZAG);
+    if (d >= 3) patterns.push(PATTERN_CUBES_WALL, PATTERN_CUBES_ZIGZAG, PATTERN_GAUNTLET, PATTERN_NARROW_PASS);
+    if (d >= 4) patterns.push(PATTERN_IRON_CUBE, PATTERN_CUBE_STORM, PATTERN_GAUNTLET, PATTERN_CUBES_WALL);
+    if (d >= 5) patterns.push(PATTERN_IRON_CUBE, PATTERN_CUBE_STORM, PATTERN_NARROW_PASS, PATTERN_GAUNTLET);
+    if (d >= 6) patterns.push(PATTERN_IRON_CUBE, PATTERN_CUBE_STORM, PATTERN_NARROW_PASS, PATTERN_CUBES_WALL, PATTERN_GAUNTLET);
+
+    return patterns[Math.floor(Math.random() * patterns.length)];
+}
+
+function spawnRoadSegment(z) {
+    // Road is now a single continuous mesh, no individual segments needed
+}
+
+function getFreeCube() {
+    for (const c of cubes) {
+        if (!c.active) return c;
+    }
+    return null;
+}
+
+function getFreeWall() {
+    for (const w of walls) {
+        if (!w.active) return w;
+    }
+    return null;
+}
+
+function getFreeBallItem() {
+    for (const b of freeBallItems) {
+        if (!b.active) return b;
+    }
+    return null;
+}
+
+function getFreeMegaBallItem() {
+    for (const m of megaBallItems) {
+        if (!m.active) return m;
+    }
+    return null;
+}
+
+function updateCubeText(cube) {
+    const ctx = cube.canvas.getContext('2d');
+    ctx.clearRect(0, 0, 64, 64);
+    if (cube.type === IRON_CUBE_TYPE) {
+        // Draw X / skull mark
+        ctx.fillStyle = '#ff0000';
+        ctx.font = 'bold 44px Arial';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.strokeStyle = '#ffff00';
+        ctx.lineWidth = 2;
+        ctx.strokeText('X', 32, 32);
+        ctx.fillText('X', 32, 32);
+    } else if (cube.hp > 0) {
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 36px Arial';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(cube.hp.toString(), 32, 32);
+    }
+    cube.texture.needsUpdate = true;
+}
+
+function updateBallItemText(item) {
+    const ctx = item.canvas.getContext('2d');
+    ctx.clearRect(0, 0, 64, 64);
+    if (item.count > 1) {
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 32px Arial';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('' + item.count, 32, 32);
+    }
+    item.texture.needsUpdate = true;
+}
+
+function laneToX(lane) {
+    return (lane - 2) * LANE_WIDTH;
+}
+
+function spawnCube(z, lane, cubeType, level) {
+    const cube = getFreeCube();
+    if (!cube) return;
+
+    const type = cubeType !== undefined ? cubeType : getRandomCubeType();
+    const lvl = level !== undefined ? level : getCubeLevel();
+
+    cube.type = type;
+    cube.active = true;
+    cube.shakeTimer = 0;
+    cube.mesh.scale.set(1, 1, 1);
+
+    if (type === IRON_CUBE_TYPE) {
+        cube.hp = 0;
+        cube.score = IRON_CUBE_SCORE;
+        cube.mesh.material.color.copy(IRON_CUBE_COLOR);
+        cube.mesh.material.emissive.set(0xff0000);
+        cube.mesh.material.emissiveIntensity = 0.6;
+    } else {
+        cube.hp = getCubeHP(type, lvl);
+        cube.score = cube.hp;
+        cube.mesh.material.color.copy(CUBE_COLORS[type % CUBE_COLORS.length]);
+        cube.mesh.material.emissive.copy(CUBE_COLORS[type % CUBE_COLORS.length]);
+        cube.mesh.material.emissiveIntensity = 0.2;
+    }
+
+    const x = laneToX(lane);
+    cube.mesh.position.set(x, 0.4, z);
+    cube.originalPos.set(x, 0.4, z);
+    cube.mesh.visible = true;
+    updateCubeText(cube);
+}
+
+function spawnWall(z, lane) {
+    const wall = getFreeWall();
+    if (!wall) return;
+
+    wall.active = true;
+    const x = laneToX(lane);
+    wall.originalPos.set(x, 0.6, z);
+    wall.mesh.position.set(x, 0.6, z);
+    wall.mesh.visible = true;
+}
+
+function spawnFreeBall(z, lane, count) {
+    const item = getFreeBallItem();
+    if (!item) return;
+
+    item.active = true;
+    item.count = count;
+    const x = laneToX(lane);
+    item.originalPos.set(x, 0.5, z);
+    item.mesh.position.set(x, 0.5, z);
+    item.mesh.visible = true;
+    updateBallItemText(item);
+}
+
+function spawnMegaBall(z, lane) {
+    const item = getFreeMegaBallItem();
+    if (!item) return;
+
+    item.active = true;
+    const x = laneToX(lane);
+    item.originalPos.set(x, 0.5, z);
+    item.mesh.position.set(x, 0.5, z);
+    item.mesh.visible = true;
+}
+
+function spawnPatternAt(z) {
+    const pattern = generatePattern();
+    const d = getDifficulty();
+    const level = getCubeLevel();
+
+    switch (pattern) {
+        case PATTERN_CUBES_SINGLE: {
+            const lane = Math.floor(Math.random() * 5);
+            spawnCube(z, lane, undefined, level);
+            break;
+        }
+        case PATTERN_CUBES_ROW: {
+            const count = 2 + Math.floor(Math.random() * 2);
+            const startLane = Math.floor(Math.random() * (5 - count));
+            for (let i = 0; i < count; i++) {
+                spawnCube(z, startLane + i, undefined, level);
+            }
+            break;
+        }
+        case PATTERN_CUBES_DOUBLE: {
+            const lane1 = Math.floor(Math.random() * 5);
+            let lane2 = Math.floor(Math.random() * 5);
+            while (lane2 === lane1) lane2 = Math.floor(Math.random() * 5);
+            spawnCube(z, lane1, undefined, level);
+            spawnCube(z + 3, lane2, undefined, level);
+            break;
+        }
+        case PATTERN_WALL_LEFT:
+        case PATTERN_WALL_RIGHT: {
+            const lane = Math.floor(Math.random() * 5);
+            spawnWall(z, lane);
+            break;
+        }
+        case PATTERN_CUBES_ZIGZAG: {
+            for (let i = 0; i < 3; i++) {
+                const lane = (i % 2 === 0) ? Math.floor(Math.random() * 3) : 2 + Math.floor(Math.random() * 3);
+                spawnCube(z + i * 3, lane, undefined, level);
+            }
+            break;
+        }
+        case PATTERN_CUBES_WALL: {
+            const gap = Math.floor(Math.random() * 5);
+            for (let i = 0; i < 5; i++) {
+                if (i !== gap) {
+                    spawnCube(z, i, undefined, level);
+                }
+            }
+            break;
+        }
+        case PATTERN_FREEBALL: {
+            const lane = Math.floor(Math.random() * 5);
+            const count = 2 + Math.floor(Math.random() * 4);
+            spawnFreeBall(z, lane, count);
+            break;
+        }
+        case PATTERN_MEGABALL: {
+            const lane = Math.floor(Math.random() * 5);
+            spawnMegaBall(z, lane);
+            break;
+        }
+        case PATTERN_IRON_CUBE: {
+            const lane = Math.floor(Math.random() * 5);
+            spawnCube(z, lane, IRON_CUBE_TYPE, 0);
+            break;
+        }
+        case PATTERN_GAUNTLET: {
+            // 2 walls spaced apart on non-adjacent lanes
+            const lane1 = Math.floor(Math.random() * 5);
+            let lane2;
+            do { lane2 = Math.floor(Math.random() * 5); } while (Math.abs(lane2 - lane1) < 2);
+            spawnWall(z, lane1);
+            spawnWall(z + 5, lane2);
+            break;
+        }
+        case PATTERN_CUBE_STORM: {
+            // Cubes scattered across 3-4 lanes at staggered depths
+            const lanes = [0,1,2,3,4].sort(() => Math.random() - 0.5).slice(0, 3 + Math.floor(Math.random() * 2));
+            lanes.forEach((lane, i) => {
+                spawnCube(z + i * 2, lane, undefined, level);
+            });
+            break;
+        }
+        case PATTERN_NARROW_PASS: {
+            // Walls with gaps - at least 2 lanes open
+            const blocked = [0,1,2,3,4].sort(() => Math.random() - 0.5).slice(0, 2 + Math.floor(Math.random() * 2));
+            // Ensure no two adjacent blocked lanes
+            const finalBlocked = [blocked[0]];
+            for (let i = 1; i < blocked.length; i++) {
+                if (Math.abs(blocked[i] - finalBlocked[finalBlocked.length - 1]) >= 2) {
+                    finalBlocked.push(blocked[i]);
+                }
+            }
+            for (const lane of finalBlocked) {
+                spawnWall(z, lane);
+            }
+            break;
+        }
+    }
+}
+
+function ensureRoadsAndPatterns() {
+    const ballZ = playerWorldZ;
+
+    // Spawn road segments
+    while (nextSpawnZ < ballZ + VISIBLE_DISTANCE) {
+        spawnRoadSegment(nextSpawnZ);
+        nextSpawnZ += ROAD_SEGMENT_LENGTH;
+    }
+
+    // Spawn patterns ahead
+    const patternSpacing = Math.max(5, 8 - getDifficulty() * 0.4);
+    while (patternIndex * patternSpacing < ballZ + VISIBLE_DISTANCE) {
+        const z = patternIndex * patternSpacing + 20;
+        spawnPatternAt(z);
+        patternIndex++;
+    }
+
+    // Despawn behind
+    for (const c of cubes) {
+        if (c.active && c.mesh.position.z < ballZ + DESPAWN_DISTANCE) {
+            c.active = false;
+            c.mesh.visible = false;
+        }
+    }
+    for (const w of walls) {
+        if (w.active && w.mesh.position.z < ballZ + DESPAWN_DISTANCE) {
+            w.active = false;
+            w.mesh.visible = false;
+        }
+    }
+    for (const b of freeBallItems) {
+        if (b.active && b.mesh.position.z < ballZ + DESPAWN_DISTANCE) {
+            b.active = false;
+            b.mesh.visible = false;
+        }
+    }
+    for (const m of megaBallItems) {
+        if (m.active && m.mesh.position.z < ballZ + DESPAWN_DISTANCE) {
+            m.active = false;
+            m.mesh.visible = false;
+        }
+    }
+}
+
+// ============================================================
+// PARTICLES
+// ============================================================
+function spawnParticles(pos, color, count = 8) {
+    for (let i = 0; i < count; i++) {
+        for (const p of particles) {
+            if (!p.active) {
+                p.active = true;
+                p.life = 0.6 + Math.random() * 0.4;
+                p.mesh.position.copy(pos);
+                p.mesh.material.color.copy(color);
+                p.mesh.material.emissive.copy(color);
+                p.vel.set(
+                    (Math.random() - 0.5) * 8,
+                    Math.random() * 6 + 2,
+                    (Math.random() - 0.5) * 8
+                );
+                p.mesh.visible = true;
+                break;
+            }
+        }
+    }
+}
+
+function updateParticles(dt) {
+    for (const p of particles) {
+        if (!p.active) continue;
+        p.life -= dt;
+        if (p.life <= 0) {
+            p.active = false;
+            p.mesh.visible = false;
+            continue;
+        }
+        p.vel.y -= 15 * dt;
+        p.mesh.position.x += p.vel.x * dt;
+        p.mesh.position.y += p.vel.y * dt;
+        p.mesh.position.z += p.vel.z * dt;
+        p.mesh.material.opacity = Math.max(0, p.life);
+        p.mesh.material.transparent = true;
+    }
+}
+
+// ============================================================
+// SCORE POPUPS
+// ============================================================
+function showScorePopup(amount) {
+    const el = document.createElement('div');
+    el.className = 'score-popup';
+    el.textContent = '' + amount;
+
+    // Position near center-top
+    el.style.left = (40 + Math.random() * 20) + '%';
+    el.style.top = '15%';
+
+    document.getElementById('score-popups').appendChild(el);
+    setTimeout(() => el.remove(), 1300);
+}
+
+// ============================================================
+// COLLISION
+// ============================================================
+function checkCollisions() {
+    const ballPos = mainBallGroup.position;
+    const isMega = megaBallTimer > 0;
+    const ballRadius = isMega ? 0.55 : 0.35;
+
+    // Cubes
+    for (const cube of cubes) {
+        if (!cube.active) continue;
+        const dx = Math.abs(ballPos.x - cube.mesh.position.x);
+        const dy = Math.abs(ballPos.y - cube.mesh.position.y);
+        const dz = Math.abs(ballPos.z - cube.mesh.position.z);
+
+        if (dx < (0.4 + ballRadius) && dy < (0.4 + ballRadius) && dz < (0.4 + ballRadius)) {
+            if (isMega) {
+                // Mega ball destroys instantly
+                score += cube.score;
+                showScorePopup(cube.score);
+                spawnParticles(cube.mesh.position, cube.mesh.material.color, 15);
+                cube.active = false;
+                cube.mesh.visible = false;
+                playSound('breakCube');
+                cameraShake = Math.min(cameraShake + 0.05, 0.3);
+                continue;
+            }
+
+            if (cube.type === IRON_CUBE_TYPE) {
+                // Iron cube = instant death
+                playSound('ironCube');
+                cameraShake = 0.5;
+                ballCount = 0;
+                showGameOver();
+                return;
+            }
+
+            // Normal cube hit
+            cube.hp -= 1;
+            ballCount -= 1;
+            score += 1;
+            updateCubeText(cube);
+            updateUI();
+
+            if (cube.hp <= 0) {
+                // Cube destroyed
+                showScorePopup(cube.score);
+                spawnParticles(cube.mesh.position, cube.mesh.material.color, 10);
+                cube.active = false;
+                cube.mesh.visible = false;
+                playSound('breakCube');
+                hittingCube = false;
+                lastCube = null;
+            } else {
+                // Cube still alive, push ball back
+                cube.shakeTimer = 0.05;
+                hittingCube = true;
+                lastCube = cube;
+                mainBallGroup.position.z = cube.mesh.position.z - 0.675 - HIT_BACK_DISTANCE;
+                playSound('hitCube');
+                cameraShake = 0.15;
+                spawnParticles(ballPos.clone(), new THREE.Color(1, 1, 1), 3);
+            }
+
+            if (ballCount <= 0) {
+                showGameOver();
+                return;
+            }
+
+            updateFollowingBalls();
+        }
+    }
+
+    // Walls - impassable, bounce randomly left/right
+    for (const wall of walls) {
+        if (!wall.active) continue;
+        const wx = wall.mesh.position.x;
+        const wz = wall.mesh.position.z;
+        const dx = Math.abs(ballPos.x - wx);
+        const dz = Math.abs(ballPos.z - wz);
+
+        // Wall is 1.0 wide, 1.0 deep
+        if (dx < (0.5 + ballRadius) && dz < (0.5 + ballRadius) && ballPos.y < 1.4) {
+            if (isMega) {
+                score += WALL_SCORE;
+                showScorePopup(WALL_SCORE);
+                spawnParticles(wall.mesh.position, new THREE.Color(0.5, 0.5, 0.7), 8);
+                wall.active = false;
+                wall.mesh.visible = false;
+                playSound('hitWall');
+                continue;
+            }
+
+            if (!readyToBounceOnWall) continue;
+            readyToBounceOnWall = false;
+
+            // Push ball back behind wall
+            mainBallGroup.position.z = wz - 0.5 - ballRadius;
+            playerWorldZ = mainBallGroup.position.z;
+
+            // Bounce randomly left or right
+            const goRight = Math.random() < 0.5;
+            if (goRight && currentLane < NUMBER_OF_LANES - 1) {
+                nextLane = currentLane + 1;
+                velocity.x = SIDE_SPEED;
+            } else if (!goRight && currentLane > 0) {
+                nextLane = currentLane - 1;
+                velocity.x = -SIDE_SPEED;
+            } else if (currentLane < NUMBER_OF_LANES - 1) {
+                nextLane = currentLane + 1;
+                velocity.x = SIDE_SPEED;
+            } else {
+                nextLane = currentLane - 1;
+                velocity.x = -SIDE_SPEED;
+            }
+
+            playSound('hitWall');
+            cameraShake = 0.2;
+        }
+    }
+
+    // Free ball items
+    for (const item of freeBallItems) {
+        if (!item.active) continue;
+        const dist = ballPos.distanceTo(item.mesh.position);
+        if (dist < 0.65 + ballRadius) {
+            ballCount += item.count;
+            item.active = false;
+            item.mesh.visible = false;
+            playSound('getItem');
+            flickerTimer = 0.5;
+            updateFollowingBalls();
+            updateUI();
+        }
+    }
+
+    // Mega ball items
+    for (const item of megaBallItems) {
+        if (!item.active) continue;
+        const dist = ballPos.distanceTo(item.mesh.position);
+        if (dist < 0.75 + ballRadius) {
+            activateMegaBall();
+            item.active = false;
+            item.mesh.visible = false;
+            playSound('getMega');
+        }
+    }
+}
+
+function activateMegaBall() {
+    if (megaBallTimer <= 0) {
+        preMegaBallSpeed = velocity.z;
+        velocity.z = preMegaBallSpeed * MEGA_BALL_SPEED_MULT;
+    }
+    megaBallTimer = MEGA_BALL_DURATION;
+    megaBallMesh.visible = true;
+}
+
+// ============================================================
+// FOLLOWING BALLS
+// ============================================================
+function updateFollowingBalls() {
+    const count = Math.min(ballCount - 1, followingBalls.length);
+    for (let i = 0; i < followingBalls.length; i++) {
+        followingBalls[i].active = i < count;
+        followingBalls[i].mesh.visible = i < count;
+    }
+}
+
+// Y position history ring buffer for wave delay
+const Y_HISTORY_SIZE = 120; // frames of history
+const yHistory = new Float32Array(Y_HISTORY_SIZE);
+let yHistoryIndex = 0;
+
+function moveFollowingBalls(dt) {
+    if (!followingBalls[0].active) return;
+
+    // Record main ball Y into history
+    yHistory[yHistoryIndex % Y_HISTORY_SIZE] = mainBallGroup.position.y;
+    yHistoryIndex++;
+
+    const lerpXZ = 0.85;
+    const framesDelay = 4; // delay between each ball in frames
+
+    for (let i = 0; i < followingBalls.length; i++) {
+        const fb = followingBalls[i];
+        if (!fb.active) break;
+
+        const pos = fb.mesh.position;
+
+        // X follows directly
+        const prevX = i === 0 ? mainBallGroup.position.x : followingBalls[i - 1].mesh.position.x;
+        pos.x = pos.x + (prevX - pos.x) * lerpXZ;
+
+        // Y: read from history with delay per ball index
+        const delay = (i + 1) * framesDelay;
+        const histIdx = yHistoryIndex - 1 - delay;
+        if (histIdx >= 0) {
+            const targetY = yHistory[histIdx % Y_HISTORY_SIZE];
+            pos.y = pos.y + (targetY - pos.y) * 0.5;
+        }
+
+        pos.z = mainBallGroup.position.z - 0.2 - 0.15 * i;
+    }
+}
+
+// ============================================================
+// INPUT HANDLING
+// ============================================================
+let touchStartX = 0;
+let touchStartY = 0;
+let touchStartTime = 0;
+let hasSwiped = false;
+
+// Direct handlers for keyboard
+function handleMoveLeft() { moveRight(); }
+function handleMoveRight() { moveLeft(); }
+function handleMoveUp() { jump(); }
+
+// Swipe handlers for touch/mouse
+function handleSwipeRight() { moveLeft(); }
+function handleSwipeLeft() { moveRight(); }
+function handleSwipeUp() { jump(); }
+
+function moveLeft() {
+    if (!canSwipe || currentLane !== nextLane || currentLane === 0) return;
+    canSwipe = false;
+    nextLane = currentLane - 1;
+    velocity.x = -SIDE_SPEED;
+    playSound('move');
+}
+
+function moveRight() {
+    if (!canSwipe || currentLane !== nextLane || currentLane === NUMBER_OF_LANES - 1) return;
+    canSwipe = false;
+    nextLane = currentLane + 1;
+    velocity.x = SIDE_SPEED;
+    playSound('move');
+}
+
+function jump() {
+    if (!canJump) return;
+    canJump = false;
+    velocity.y = JUMP_SPEED;
+    mainBallGroup.position.y = Math.max(mainBallGroup.position.y, BALL_GROUND_Y + 0.05);
+    readyToBounceOnGround = true;
+    didJumpDuringCollision = lastCube !== null && lastCube.active;
+    playSound('jump');
+}
+
+// Keyboard
+document.addEventListener('keydown', (e) => {
+    if (gameState !== 'playing' && gameState !== 'tutorial') return;
+    switch (e.key) {
+        case 'ArrowLeft': case 'a': case 'A': handleMoveLeft(); break;
+        case 'ArrowRight': case 'd': case 'D': handleMoveRight(); break;
+        case 'ArrowUp': case 'w': case 'W': case ' ': handleMoveUp(); break;
+    }
+});
+
+// Touch
+const touchArea = document.getElementById('touch-area');
+
+document.addEventListener('touchstart', (e) => {
+    if (gameState !== 'playing' && gameState !== 'tutorial') return;
+    touchStartX = e.touches[0].clientX;
+    touchStartY = e.touches[0].clientY;
+    touchStartTime = Date.now();
+    hasSwiped = false;
+}, { passive: true });
+
+document.addEventListener('touchmove', (e) => {
+    if (gameState !== 'playing' && gameState !== 'tutorial') return;
+    if (hasSwiped) return;
+
+    const dx = e.touches[0].clientX - touchStartX;
+    const dy = e.touches[0].clientY - touchStartY;
+    const adx = Math.abs(dx);
+    const ady = Math.abs(dy);
+
+    const threshold = 20;
+
+    if (adx > threshold || ady > threshold) {
+        hasSwiped = true;
+        if (ady > adx && dy < -threshold) {
+            handleSwipeUp();
+        } else if (dx > threshold) {
+            handleSwipeRight();
+        } else if (dx < -threshold) {
+            handleSwipeLeft();
+        }
+    }
+}, { passive: true });
+
+document.addEventListener('touchend', () => {
+    canSwipe = true;
+}, { passive: true });
+
+// Mouse (for desktop drag)
+let mouseDown = false;
+document.addEventListener('mousedown', (e) => {
+    if (gameState !== 'playing' && gameState !== 'tutorial') return;
+    touchStartX = e.clientX;
+    touchStartY = e.clientY;
+    mouseDown = true;
+    hasSwiped = false;
+});
+document.addEventListener('mousemove', (e) => {
+    if (!mouseDown || hasSwiped) return;
+    if (gameState !== 'playing' && gameState !== 'tutorial') return;
+
+    const dx = e.clientX - touchStartX;
+    const dy = e.clientY - touchStartY;
+    const threshold = 15;
+
+    if (Math.abs(dx) > threshold || Math.abs(dy) > threshold) {
+        hasSwiped = true;
+        if (Math.abs(dy) > Math.abs(dx) && dy < -threshold) {
+            handleSwipeUp();
+        } else if (dx > threshold) {
+            handleSwipeRight();
+        } else if (dx < -threshold) {
+            handleSwipeLeft();
+        }
+    }
+});
+document.addEventListener('mouseup', () => {
+    mouseDown = false;
+    canSwipe = true;
+});
+
+// ============================================================
+// UI
+// ============================================================
+const mainMenu = document.getElementById('main-menu');
+const gameUI = document.getElementById('game-ui');
+const resultScreen = document.getElementById('result-screen');
+const scoreDisplay = document.getElementById('score-display');
+const ballCountDisplay = document.getElementById('ball-count');
+const tutorialOverlay = document.getElementById('tutorial-overlay');
+const tutorialText = document.getElementById('tutorial-text');
+const touchAreaEl = document.getElementById('touch-area');
+
+const megaTimerWrap = document.getElementById('mega-timer-wrap');
+const megaTimerBar = document.getElementById('mega-timer-bar');
+
+function updateUI() {
+    const currentScore = score + Math.floor(gameTimer);
+    scoreDisplay.textContent = currentScore;
+    ballCountDisplay.textContent = 'BALLS: ' + ballCount;
+    ballCountDisplay.style.display = '';
+    updateBallCountSprite();
+
+    // Mega ball timer bar
+    if (megaBallTimer > 0) {
+        megaTimerWrap.style.display = 'block';
+        const pct = (megaBallTimer / MEGA_BALL_DURATION) * 100;
+        megaTimerBar.style.width = pct + '%';
+        // Flash when almost done
+        if (megaBallTimer < 2) {
+            megaTimerBar.style.background = Math.floor(megaBallTimer * 8) % 2 === 0
+                ? 'linear-gradient(90deg, #ff4444, #ff8844)'
+                : 'linear-gradient(90deg, #ffaa00, #ffdd44)';
+        } else {
+            megaTimerBar.style.background = 'linear-gradient(90deg, #ffaa00, #ffdd44)';
+        }
+    } else {
+        megaTimerWrap.style.display = 'none';
+    }
+}
+
+function updateBestScoreDisplay() {
+    const el = document.getElementById('best-score-display');
+    if (bestScore > 0) {
+        el.textContent = 'BEST: ' + bestScore;
+    } else {
+        el.textContent = '';
+    }
+}
+
+function startGame() {
+    initAudio();
+    gameState = 'playing';
+
+    mainMenu.style.display = 'none';
+    resultScreen.style.display = 'none';
+    gameUI.style.display = 'block';
+    touchAreaEl.style.display = 'block';
+    tutorialOverlay.style.display = 'none';
+
+    resetGameState();
+    ensureRoadsAndPatterns();
+    updateUI();
+    updateFollowingBalls();
+}
+
+function resetGameState() {
+    score = 0;
+    gameTimer = 0;
+    ballCount = INITIAL_BALL_COUNT;
+    velocity.set(0, 0, INITIAL_SPEED);
+    currentLane = 2;
+    nextLane = 2;
+    canJump = true;
+    canSwipe = true;
+    readyToBounceOnGround = true;
+    readyToBounceOnWall = true;
+    hittingCube = false;
+    lastCube = null;
+    didJumpDuringCollision = false;
+    megaBallTimer = 0;
+    preMegaBallSpeed = INITIAL_SPEED;
+    flickerTimer = 0;
+    megaFlickerTimer = 0;
+    playerWorldZ = 0;
+    cameraShake = 0;
+    nextSpawnZ = 0;
+    patternIndex = 0;
+    spawnedPatternCount = 0;
+
+    mainBallGroup.position.set(0, BALL_GROUND_Y, 0);
+    mainBallMesh.visible = true;
+    megaBallMesh.visible = false;
+    mainBallMesh.material.color.set(0xffffff);
+    updateBallCountSprite();
+
+    // Reset all pools
+    for (const c of cubes) { c.active = false; c.mesh.visible = false; }
+    for (const w of walls) { w.active = false; w.mesh.visible = false; }
+    for (const b of freeBallItems) { b.active = false; b.mesh.visible = false; }
+    for (const m of megaBallItems) { m.active = false; m.mesh.visible = false; }
+    for (const p of particles) { p.active = false; p.mesh.visible = false; }
+    for (const fb of followingBalls) {
+        fb.active = false;
+        fb.mesh.visible = false;
+        fb.mesh.position.set(0, 0, -1);
+    }
+}
+
+function showGameOver() {
+    gameState = 'result';
+
+    // Throw following balls
+    for (const fb of followingBalls) {
+        if (fb.active) {
+            fb.throwVel = new THREE.Vector3(
+                (Math.random() - 0.5) * 10,
+                Math.random() * 8 + 2,
+                (Math.random() - 0.5) * 10
+            );
+        }
+    }
+
+    const finalScore = score + Math.floor(gameTimer);
+    document.getElementById('final-score').textContent = finalScore;
+
+    if (finalScore > bestScore) {
+        bestScore = finalScore;
+        localStorage.setItem('snakeball_best', bestScore.toString());
+        document.getElementById('new-best').style.display = '';
+        playSound('highscore');
+    } else {
+        document.getElementById('new-best').style.display = 'none';
+        playSound('gameOver');
+    }
+
+    document.getElementById('best-score-result').textContent = 'BEST: ' + bestScore;
+
+    // Delay showing result screen
+    setTimeout(() => {
+        gameUI.style.display = 'none';
+        touchAreaEl.style.display = 'none';
+        tutorialOverlay.style.display = 'none';
+        resultScreen.style.display = 'flex';
+    }, 1500);
+}
+
+// Button handlers
+document.getElementById('tap-to-play').addEventListener('click', startGame);
+document.getElementById('play-again').addEventListener('click', startGame);
+document.getElementById('sound-toggle').addEventListener('click', () => {
+    soundEnabled = !soundEnabled;
+    document.getElementById('sound-toggle').textContent = soundEnabled ? '🔊' : '🔇';
+});
+
+updateBestScoreDisplay();
+
+// ============================================================
+// ROAD CURVE EFFECT
+// ============================================================
+let curveX = 0, curveY = 0;
+let curveTargetX = 0, curveTargetY = 0;
+let curveTimerX = 0, curveTimerY = 0;
+
+function updateRoadCurve(dt) {
+    curveTimerX -= dt;
+    curveTimerY -= dt;
+
+    const d = getDifficulty();
+    const curveIntensity = 0.002 + d * 0.0008;
+    if (curveTimerX <= 0) {
+        curveTimerX = 6 + Math.random() * 8;
+        curveTargetX = (Math.random() - 0.5) * curveIntensity * 2;
+    }
+    if (curveTimerY <= 0) {
+        curveTimerY = 8 + Math.random() * 10;
+        curveTargetY = (Math.random() - 0.5) * curveIntensity;
+    }
+
+    curveX += (curveTargetX - curveX) * dt * 1.5;
+    curveY += (curveTargetY - curveY) * dt * 1.0;
+}
+
+function getCurveBend(dz) {
+    return dz > 0 ? dz * dz : 0;
+}
+
+function deformRoadPlane(pos, baseArr, offsetX, offsetY, meshZ) {
+    // After rotateX(-PI/2): local X = world X, local Y = world Y (0), local Z = world Z offset
+    const ballZ = playerWorldZ;
+    for (let i = 0; i < pos.count; i++) {
+        const bx = baseArr[i * 3];       // local X (road width)
+        const by = baseArr[i * 3 + 1];   // local Y (always 0 for flat plane)
+        const bz = baseArr[i * 3 + 2];   // local Z (along road, -ROAD_LENGTH/2 to +ROAD_LENGTH/2)
+        const worldZ = meshZ + bz;
+        const dz = worldZ - ballZ;
+        const bend = getCurveBend(dz);
+        pos.setX(i, bx + offsetX + curveX * bend);
+        pos.setY(i, by + offsetY + curveY * bend);
+    }
+    pos.needsUpdate = true;
+}
+
+function applyRoadCurve() {
+    const ballZ = playerWorldZ;
+    const roadCenter = ballZ - 10 + ROAD_LENGTH / 2;
+
+    // Deform road surface
+    const roadPos = roadGeo.attributes.position;
+    deformRoadPlane(roadPos, roadBasePositions, 0, 0, roadCenter);
+    roadMesh.position.set(0, 0, roadCenter);
+
+    // Deform all strips (lane lines + borders)
+    for (const strip of roadStrips) {
+        const pos = strip.geo.attributes.position;
+        deformRoadPlane(pos, strip.basePositions, strip.baseX, strip.baseY, roadCenter);
+        strip.mesh.position.set(0, 0, roadCenter);
+    }
+
+    // Apply curve to all game objects
+    for (const cube of cubes) {
+        if (!cube.active) continue;
+        const dz = cube.originalPos.z - ballZ;
+        const bend = getCurveBend(dz);
+        cube.mesh.position.x = cube.originalPos.x + curveX * bend;
+        cube.mesh.position.y = cube.originalPos.y + curveY * bend;
+    }
+    for (const wall of walls) {
+        if (!wall.active) continue;
+        const dz = wall.originalPos.z - ballZ;
+        const bend = getCurveBend(dz);
+        wall.mesh.position.x = wall.originalPos.x + curveX * bend;
+        wall.mesh.position.y = wall.originalPos.y + curveY * bend;
+    }
+    for (const item of freeBallItems) {
+        if (!item.active) continue;
+        const dz = item.originalPos.z - ballZ;
+        const bend = getCurveBend(dz);
+        item.mesh.position.x = item.originalPos.x + curveX * bend;
+        item.mesh.position.y = item.originalPos.y + curveY * bend;
+    }
+    for (const item of megaBallItems) {
+        if (!item.active) continue;
+        const dz = item.originalPos.z - ballZ;
+        const bend = getCurveBend(dz);
+        item.mesh.position.x = item.originalPos.x + curveX * bend;
+        item.mesh.position.y = item.originalPos.y + curveY * bend;
+    }
+}
+
+// ============================================================
+// MAIN UPDATE LOOP
+// ============================================================
+const clock = new THREE.Clock();
+
+function update() {
+    requestAnimationFrame(update);
+
+    const dt = Math.min(clock.getDelta(), 0.05);
+
+    if (gameState === 'playing' || gameState === 'tutorial') {
+        // Tutorial logic
+        if (gameState === 'tutorial') {
+            if (!tutorialWaiting) {
+                // Wait for lane change / jump to complete
+                if (tutorialStep === 0 || tutorialStep === 1) {
+                    if (currentLane === nextLane) {
+                        tutorialStep++;
+                        if (tutorialStep < 3) {
+                            tutorialWaiting = true;
+                            tutorialText.textContent = tutorialMessages[tutorialStep];
+                        } else {
+                            // Tutorial done, start real game
+                            gameState = 'playing';
+                            tutorialOverlay.style.display = 'none';
+                            ensureRoadsAndPatterns();
+                        }
+                    }
+                } else if (tutorialStep === 2) {
+                    if (canJump && mainBallGroup.position.y <= BALL_GROUND_Y + 0.01) {
+                        gameState = 'playing';
+                        tutorialOverlay.style.display = 'none';
+                        ensureRoadsAndPatterns();
+                    }
+                }
+            }
+
+            // During tutorial, still move sideways and do physics
+            moveBall(dt, true);
+        } else {
+            // Normal gameplay
+            gameTimer += dt;
+
+            // Speed up
+            const speedChange = (MAX_SPEED - INITIAL_SPEED) / SPEED_UP_DURATION;
+            if (megaBallTimer <= 0 && velocity.z < MAX_SPEED) {
+                velocity.z += speedChange * dt;
+            }
+
+            moveBall(dt, false);
+            checkCollisions();
+        }
+
+        // Mega ball timer
+        if (megaBallTimer > 0) {
+            megaBallTimer -= dt;
+            megaFlickerTimer -= dt;
+
+            if (megaBallTimer <= 0) {
+                megaBallMesh.visible = false;
+                velocity.z = preMegaBallSpeed;
+                updateUI();
+            } else if (megaBallTimer < 2) {
+                // Fast flicker near end
+                if (megaFlickerTimer <= 0) {
+                    megaFlickerTimer = 0.04;
+                    megaBallMesh.visible = !megaBallMesh.visible;
+                }
+            } else {
+                if (megaFlickerTimer <= 0) {
+                    megaFlickerTimer = 0.08;
+                    // Cycle colors
+                    const t = Date.now() % 1000 / 1000;
+                    megaBallMesh.material.emissive.setHSL(t, 1, 0.5);
+                }
+            }
+        }
+
+        // Ball flicker (when collecting items)
+        if (flickerTimer > 0) {
+            flickerTimer -= dt;
+            const flick = Math.floor(flickerTimer * 20) % 3;
+            const colors = [0xffffff, 0x63f8cf, 0x4ad585];
+            mainBallMesh.material.color.set(colors[flick]);
+            if (flickerTimer <= 0) {
+                mainBallMesh.material.color.set(0xffffff);
+            }
+        }
+
+        // Cube shake + iron cube pulse
+        const pulseTime = Date.now() * 0.005;
+        for (const cube of cubes) {
+            if (!cube.active) continue;
+            if (cube.shakeTimer > 0) {
+                cube.shakeTimer -= dt;
+                if (cube.shakeTimer > 0) {
+                    cube.mesh.position.x = cube.originalPos.x + (Math.random() - 0.5) * 0.1;
+                    cube.mesh.position.y = cube.originalPos.y + (Math.random() - 0.5) * 0.1;
+                } else {
+                    cube.mesh.position.x = cube.originalPos.x;
+                    cube.mesh.position.y = cube.originalPos.y;
+                }
+            }
+            // Iron cube: pulse red glow and scale
+            if (cube.type === IRON_CUBE_TYPE) {
+                const pulse = 0.4 + Math.sin(pulseTime) * 0.3;
+                cube.mesh.material.emissiveIntensity = pulse;
+                const s = 1.0 + Math.sin(pulseTime * 1.5) * 0.05;
+                cube.mesh.scale.set(s, s, s);
+            }
+        }
+
+        // Animate collectibles
+        const bobTime = Date.now() * 0.003;
+        for (const item of freeBallItems) {
+            if (item.active) {
+                item.mesh.rotation.y += dt * 2;
+            }
+        }
+        for (const item of megaBallItems) {
+            if (item.active) {
+                item.mesh.rotation.y += dt * 3;
+                const scale = 1 + Math.sin(bobTime) * 0.1;
+                item.mesh.scale.set(scale, scale, scale);
+            }
+        }
+
+        // Move following balls
+        moveFollowingBalls(dt);
+
+        // Rotate main ball faster with speed
+        mainBallMesh.rotation.x += velocity.z * dt * 3;
+        megaBallMesh.rotation.x += velocity.z * dt * 3;
+
+        // Update road curve
+        if (gameState === 'playing') {
+            updateRoadCurve(dt);
+        }
+
+        // Ensure roads and patterns
+        ensureRoadsAndPatterns();
+
+        // Apply road curve
+        applyRoadCurve();
+
+        // Dynamic FOV based on speed
+        const speedRatio = (velocity.z - INITIAL_SPEED) / (MAX_SPEED - INITIAL_SPEED);
+        const targetFov = 60 + speedRatio * 20 + (megaBallTimer > 0 ? 10 : 0);
+        camera.fov += (targetFov - camera.fov) * dt * 3;
+        camera.updateProjectionMatrix();
+
+        // Camera shake decay
+        if (cameraShake > 0) cameraShake *= Math.max(0, 1 - dt * 12);
+        if (cameraShake < 0.001) cameraShake = 0;
+        const shakeX = cameraShake * (Math.random() - 0.5) * 2;
+        const shakeY = cameraShake * (Math.random() - 0.5) * 2;
+
+        // Update camera to follow ball
+        const camTargetZ = playerWorldZ - 5.5;
+        camera.position.z = camTargetZ;
+        camera.position.x += (mainBallGroup.position.x * 0.4 - camera.position.x) * dt * 6;
+        camera.position.x += shakeX;
+        camera.position.y = 4.5 + shakeY;
+        camera.lookAt(mainBallGroup.position.x * 0.3, 0.5, playerWorldZ + 12);
+
+        // Dynamic fog
+        scene.fog.near = 30 + speedRatio * 20;
+        scene.fog.far = 70 + speedRatio * 20;
+
+        // Move directional light with player
+        dirLight.position.z = playerWorldZ + 10;
+        dirLight.target.position.z = playerWorldZ;
+        dirLight.target.updateMatrixWorld();
+
+        updateUI();
+    }
+
+    // Result screen: throw balls animation
+    if (gameState === 'result') {
+        for (const fb of followingBalls) {
+            if (fb.active && fb.throwVel) {
+                fb.throwVel.y -= 15 * dt;
+                fb.mesh.position.x += fb.throwVel.x * dt;
+                fb.mesh.position.y += fb.throwVel.y * dt;
+                fb.mesh.position.z += fb.throwVel.z * dt;
+            }
+        }
+    }
+
+    updateParticles(dt);
+    renderer.render(scene, camera);
+}
+
+function moveBall(dt, tutorialMode) {
+    let ballX = mainBallGroup.position.x;
+    let ballY = mainBallGroup.position.y;
+    let ballZ = mainBallGroup.position.z;
+
+    // Clear hitting cube if passed it
+    if (lastCube && lastCube.mesh.position.z < playerWorldZ) {
+        lastCube = null;
+        hittingCube = false;
+    }
+
+    // Lateral movement
+    if (currentLane !== nextLane) {
+        const targetX = laneToX(nextLane);
+
+        if ((velocity.x > 0 && targetX <= ballX) || (velocity.x < 0 && targetX >= ballX)) {
+            ballX = targetX;
+            velocity.x = 0;
+            currentLane = nextLane;
+            readyToBounceOnWall = true;
+            canSwipe = true;
+        } else {
+            ballX += velocity.x * dt;
+            // Clamp
+            if (velocity.x > 0 && ballX > targetX) ballX = targetX;
+            if (velocity.x < 0 && ballX < targetX) ballX = targetX;
+        }
+    }
+
+    // Vertical movement (jump/bounce)
+    if (!canJump) {
+        if (!readyToBounceOnGround) {
+            velocity.y -= GRAVITY * dt;
+            ballY += velocity.y * dt;
+            if (ballY <= BALL_GROUND_Y) {
+                ballY = BALL_GROUND_Y;
+                canJump = true;
+                didJumpDuringCollision = false;
+            }
+        } else if (!lastCube || didJumpDuringCollision) {
+            velocity.y -= GRAVITY * dt;
+            ballY += velocity.y * dt;
+            if (ballY <= BALL_GROUND_Y) {
+                ballY = BALL_GROUND_Y;
+                readyToBounceOnGround = false;
+                velocity.y = BOUNCE_SPEED;
+            }
+        }
+    }
+
+    // Forward movement (not during tutorial unless completed step)
+    if (!tutorialMode) {
+        const forwardDelta = velocity.z * dt;
+        playerWorldZ += forwardDelta;
+    }
+
+    // The ball stays near origin in view, world scrolls around it
+    mainBallGroup.position.set(ballX, ballY, playerWorldZ);
+}
+
+// ============================================================
+// WINDOW RESIZE
+// ============================================================
+window.addEventListener('resize', () => {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+// Start render loop
+update();
+</script>
+</body>
+</html>
