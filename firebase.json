@@ -1,0 +1,13 @@
+{
+  "hosting": {
+    "public": "public",
+    "ignore": [
+      "firebase.json",
+      ".firebase",
+      ".git",
+      ".gitignore",
+      "Snakeball_original",
+      ".DS_Store"
+    ]
+  }
+}

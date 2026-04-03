@@ -1013,38 +1013,36 @@ function checkCollisions() {
                 return;
             }
 
-            // Normal cube hit
-            cube.hp -= 1;
-            ballCount -= 1;
-            score += 1;
-            updateCubeText(cube);
-            updateUI();
-
-            if (cube.hp <= 0) {
-                // Cube destroyed
+            // Resolve collision: compare ballCount vs cube.hp
+            if (ballCount >= cube.hp) {
+                // Enough balls to destroy cube - pass through
+                const cost = cube.hp;
+                ballCount -= cost;
+                score += cube.score;
                 showScorePopup(cube.score);
-                spawnParticles(cube.mesh.position, cube.mesh.material.color, 10);
+                spawnParticles(cube.mesh.position, cube.mesh.material.color, 12);
                 cube.active = false;
                 cube.mesh.visible = false;
                 playSound('breakCube');
+                cameraShake = 0.1;
                 hittingCube = false;
                 lastCube = null;
             } else {
-                // Cube still alive, push ball back
+                // Not enough balls - game over, bounce back
+                ballCount = 0;
+                cube.hp -= ballCount;
+                updateCubeText(cube);
                 cube.shakeTimer = 0.05;
-                hittingCube = true;
-                lastCube = cube;
                 mainBallGroup.position.z = cube.mesh.position.z - 0.675 - HIT_BACK_DISTANCE;
+                playerWorldZ = mainBallGroup.position.z;
                 playSound('hitCube');
-                cameraShake = 0.15;
-                spawnParticles(ballPos.clone(), new THREE.Color(1, 1, 1), 3);
-            }
-
-            if (ballCount <= 0) {
+                cameraShake = 0.4;
+                spawnParticles(ballPos.clone(), new THREE.Color(1, 1, 1), 8);
                 showGameOver();
                 return;
             }
 
+            updateUI();
             updateFollowingBalls();
         }
     }
