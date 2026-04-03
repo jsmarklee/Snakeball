@@ -1143,37 +1143,36 @@ function updateFollowingBalls() {
     }
 }
 
-// Y position history ring buffer for wave delay
-const Y_HISTORY_SIZE = 120; // frames of history
-const yHistory = new Float32Array(Y_HISTORY_SIZE);
-let yHistoryIndex = 0;
+// XY position history ring buffer for wave delay
+const POS_HISTORY_SIZE = 180;
+const xHistory = new Float32Array(POS_HISTORY_SIZE);
+const yHistory = new Float32Array(POS_HISTORY_SIZE);
+let posHistoryIndex = 0;
 
 function moveFollowingBalls(dt) {
     if (!followingBalls[0].active) return;
 
-    // Record main ball Y into history
-    yHistory[yHistoryIndex % Y_HISTORY_SIZE] = mainBallGroup.position.y;
-    yHistoryIndex++;
+    // Record main ball X and Y into history
+    xHistory[posHistoryIndex % POS_HISTORY_SIZE] = mainBallGroup.position.x;
+    yHistory[posHistoryIndex % POS_HISTORY_SIZE] = mainBallGroup.position.y;
+    posHistoryIndex++;
 
-    const lerpXZ = 0.85;
-    const framesDelay = 4; // delay between each ball in frames
+    const framesDelay = 4;
+    const lerpSpeed = 0.5;
 
     for (let i = 0; i < followingBalls.length; i++) {
         const fb = followingBalls[i];
         if (!fb.active) break;
 
         const pos = fb.mesh.position;
-
-        // X follows directly
-        const prevX = i === 0 ? mainBallGroup.position.x : followingBalls[i - 1].mesh.position.x;
-        pos.x = pos.x + (prevX - pos.x) * lerpXZ;
-
-        // Y: read from history with delay per ball index
         const delay = (i + 1) * framesDelay;
-        const histIdx = yHistoryIndex - 1 - delay;
+        const histIdx = posHistoryIndex - 1 - delay;
+
         if (histIdx >= 0) {
-            const targetY = yHistory[histIdx % Y_HISTORY_SIZE];
-            pos.y = pos.y + (targetY - pos.y) * 0.5;
+            const targetX = xHistory[histIdx % POS_HISTORY_SIZE];
+            const targetY = yHistory[histIdx % POS_HISTORY_SIZE];
+            pos.x = pos.x + (targetX - pos.x) * lerpSpeed;
+            pos.y = pos.y + (targetY - pos.y) * lerpSpeed;
         }
 
         pos.z = mainBallGroup.position.z - 0.2 - 0.15 * i;
