@@ -1014,8 +1014,8 @@ function checkCollisions() {
             }
 
             // Resolve collision: compare ballCount vs cube.hp
-            if (ballCount >= cube.hp) {
-                // Enough balls to destroy cube - pass through
+            if (ballCount > cube.hp) {
+                // More balls than cube HP - destroy and pass through
                 const cost = cube.hp;
                 ballCount -= cost;
                 score += cube.score;
