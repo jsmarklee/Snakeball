@@ -1,0 +1,35 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+
+# Assets
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.svg
+*.mp3
+*.wav
+*.ttf
+
+# Lock files
+package-lock.json
+yarn.lock
+
+# IDE / OS
+.DS_Store
+*.swp
+
+# Env
+.env
+
+# Source maps
+*.map
+*.min.js
+*.min.css
+
+# Original reference
+Snakeball_original/
