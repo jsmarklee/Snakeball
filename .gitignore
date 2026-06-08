@@ -2,3 +2,8 @@ Snakeball_original
 .DS_Store
 .firebase/
 public/
+.gstack/
+node_modules/
+dist/
+*.ait
+.granite/

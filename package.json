@@ -1,0 +1,23 @@
+{
+  "name": "snakeball",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Snakeball — a simple, addictive casual endless runner for iOS, Android and Apps in Toss.",
+  "scripts": {
+    "dev": "granite dev",
+    "build": "granite build",
+    "build:web": "vite build",
+    "preview": "vite preview",
+    "sync:public": "rm -rf public && mkdir -p public && cp index.html public/index.html",
+    "deploy:web": "npm run sync:public && firebase deploy --only hosting",
+    "toss:build": "ait build",
+    "toss:deploy": "ait deploy"
+  },
+  "devDependencies": {
+    "vite": "^5.0.0"
+  },
+  "dependencies": {
+    "@apps-in-toss/web-framework": "^2.5.1"
+  }
+}

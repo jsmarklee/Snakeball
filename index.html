@@ -106,22 +106,257 @@ canvas { display: block; width: 100%; height: 100%; }
     position: absolute; top: 0; left: 0; width: 100%; height: 100%;
     display: none;
 }
+
+/* ============ ECONOMY / SHOP / MISSIONS UI ============ */
+:root { --mint:#63f8cf; --gold:#ffd23f; --gem:#5ac8fa; --bg:#0a0a1a; }
+
+/* Top currency bar (home only) */
+#top-bar {
+    position: absolute; left: 0; right: 0;
+    top: max(14px, env(safe-area-inset-top));
+    display: flex; gap: 8px; justify-content: center; align-items: center;
+    z-index: 20; pointer-events: none;
+}
+#top-bar > * { pointer-events: auto; }
+.pill {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 20px; padding: 6px 14px; color: #fff; font-weight: 700; font-size: 15px;
+    backdrop-filter: blur(6px); cursor: pointer; transition: transform 0.1s;
+}
+.pill:active { transform: scale(0.94); }
+.pill .ico { font-size: 16px; }
+.pill .plus { color: var(--mint); font-weight: 900; margin-left: 2px; }
+
+/* Home action buttons */
+#home-actions {
+    display: flex; gap: 12px; margin-top: 22px;
+}
+.home-btn {
+    display: flex; flex-direction: column; align-items: center; gap: 3px;
+    background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.18);
+    border-radius: 16px; padding: 12px 18px; color: #fff; font-size: 12px; font-weight: 600;
+    cursor: pointer; min-width: 74px; transition: transform 0.1s, background 0.2s;
+    position: relative;
+}
+.home-btn:active { transform: scale(0.93); }
+.home-btn .em { font-size: 24px; }
+.badge {
+    position: absolute; top: -6px; right: -6px; background: #ff4757; color: #fff;
+    border-radius: 10px; min-width: 18px; height: 18px; font-size: 11px; font-weight: 800;
+    display: flex; align-items: center; justify-content: center; padding: 0 4px;
+    box-shadow: 0 0 0 2px var(--bg);
+}
+
+/* Equipped power-up row on home */
+#powerup-row { display: flex; gap: 10px; margin-top: 18px; }
+.pu-slot {
+    width: 56px; height: 56px; border-radius: 14px; cursor: pointer;
+    background: rgba(255,255,255,0.05); border: 2px solid rgba(255,255,255,0.12);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    color: #888; font-size: 10px; gap: 1px; position: relative; transition: all 0.15s;
+}
+.pu-slot.armed { border-color: var(--mint); color: #fff; box-shadow: 0 0 14px rgba(99,248,207,0.4); }
+.pu-slot .em { font-size: 22px; }
+.pu-slot .cnt {
+    position: absolute; bottom: -7px; right: -7px; background: #2a2a4e; color:#fff;
+    border-radius: 9px; min-width: 18px; height: 18px; font-size: 11px; font-weight: 800;
+    display:flex; align-items:center; justify-content:center; padding:0 4px; border:1px solid rgba(255,255,255,0.2);
+}
+
+/* In-game combo + currency */
+#combo-display {
+    position: absolute; top: 130px; left: 50%; transform: translateX(-50%);
+    color: var(--gold); font-size: 26px; font-weight: 900; text-align: center;
+    text-shadow: 0 0 12px rgba(255,210,63,0.7); display: none; pointer-events: none;
+}
+#combo-display .mult { font-size: 18px; }
+#run-coins {
+    position: absolute; top: max(16px, env(safe-area-inset-top)); right: 16px;
+    color: var(--gold); font-size: 18px; font-weight: 800; text-shadow: 0 2px 6px rgba(0,0,0,0.6);
+    display: flex; align-items: center; gap: 4px;
+}
+
+/* Generic modal */
+.modal-backdrop {
+    position: absolute; inset: 0; background: rgba(5,5,15,0.82);
+    display: none; align-items: center; justify-content: center; z-index: 50;
+    backdrop-filter: blur(4px); padding: 16px;
+}
+.modal-backdrop.open { display: flex; }
+.modal {
+    width: 100%; max-width: 440px; max-height: 88vh; overflow-y: auto;
+    background: linear-gradient(160deg, #14142e, #0c0c1e);
+    border: 1px solid rgba(99,248,207,0.25); border-radius: 22px; padding: 22px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.6); position: relative;
+    -webkit-overflow-scrolling: touch;
+}
+.modal h2 {
+    color: #fff; font-size: 22px; font-weight: 800; margin-bottom: 4px; text-align: center;
+}
+.modal .sub { color: #8a8aa8; font-size: 13px; text-align: center; margin-bottom: 18px; }
+.modal-close {
+    position: absolute; top: 14px; right: 14px; width: 32px; height: 32px;
+    border-radius: 16px; background: rgba(255,255,255,0.1); border: none; color: #fff;
+    font-size: 18px; cursor: pointer; line-height: 1;
+}
+
+/* Tabs */
+.tabs { display: flex; gap: 6px; margin-bottom: 16px; }
+.tab {
+    flex: 1; padding: 9px; border-radius: 12px; background: rgba(255,255,255,0.05);
+    border: 1px solid transparent; color: #999; font-size: 13px; font-weight: 700;
+    cursor: pointer; text-align: center;
+}
+.tab.active { background: rgba(99,248,207,0.15); border-color: var(--mint); color: #fff; }
+
+/* Item grid (shop) */
+.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.card {
+    background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 14px; padding: 12px; display: flex; flex-direction: column;
+    align-items: center; gap: 8px; text-align: center; position: relative;
+}
+.card.equipped { border-color: var(--mint); box-shadow: 0 0 14px rgba(99,248,207,0.3); }
+.swatch {
+    width: 52px; height: 52px; border-radius: 50%;
+    box-shadow: inset -6px -6px 12px rgba(0,0,0,0.4), 0 0 14px rgba(255,255,255,0.15);
+}
+.card .name { color: #fff; font-size: 13px; font-weight: 700; }
+.card .desc { color: #8a8aa8; font-size: 11px; line-height: 1.3; min-height: 28px; }
+.buy-btn {
+    width: 100%; padding: 8px; border-radius: 10px; border: none; cursor: pointer;
+    font-size: 13px; font-weight: 800; color: #06121a;
+    background: linear-gradient(135deg, var(--mint), #4ad585);
+    display: flex; align-items: center; justify-content: center; gap: 4px;
+}
+.buy-btn.gem { background: linear-gradient(135deg, var(--gem), #4a90e2); color: #fff; }
+.buy-btn.cash { background: linear-gradient(135deg, #ffd23f, #ff9f1c); }
+.buy-btn:disabled { opacity: 0.45; cursor: default; }
+.buy-btn.owned { background: rgba(255,255,255,0.12); color: #fff; }
+
+/* Missions */
+.mission {
+    background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 14px; padding: 12px 14px; margin-bottom: 10px;
+}
+.mission .mtop { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.mission .mname { color: #fff; font-size: 14px; font-weight: 700; }
+.mission .mrew { color: var(--gold); font-size: 13px; font-weight: 800; }
+.pbar { height: 8px; background: rgba(255,255,255,0.1); border-radius: 4px; overflow: hidden; }
+.pbar > div { height: 100%; background: linear-gradient(90deg, var(--mint), #4ad585); border-radius: 4px; transition: width 0.4s; }
+.mission .pmeta { display: flex; justify-content: space-between; align-items: center; margin-top: 6px; }
+.mission .pcount { color: #8a8aa8; font-size: 11px; }
+.claim-btn {
+    padding: 5px 14px; border-radius: 10px; border: none; font-size: 12px; font-weight: 800;
+    cursor: pointer; background: linear-gradient(135deg, var(--gold), #ff9f1c); color: #06121a;
+}
+.claim-btn:disabled { opacity: 0.4; cursor: default; background: rgba(255,255,255,0.12); color: #fff; }
+.claim-btn.done { background: rgba(74,213,133,0.25); color: var(--mint); }
+
+/* Daily reward grid */
+.daily-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 18px; }
+.day {
+    background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 12px; padding: 10px 4px; text-align: center; position: relative;
+}
+.day .dlabel { color: #8a8aa8; font-size: 10px; font-weight: 700; }
+.day .dval { color: var(--gold); font-size: 13px; font-weight: 800; margin-top: 4px; }
+.day .dval .em { font-size: 14px; }
+.day.claimed { opacity: 0.45; }
+.day.claimed::after { content: '✓'; position: absolute; inset: 0; display:flex; align-items:center; justify-content:center; font-size: 28px; color: var(--mint); }
+.day.today { border-color: var(--gold); box-shadow: 0 0 14px rgba(255,210,63,0.4); }
+.day.bonus { background: rgba(255,210,63,0.1); }
+
+/* Big primary button */
+.big-btn {
+    width: 100%; padding: 14px; border-radius: 16px; border: none; cursor: pointer;
+    font-size: 17px; font-weight: 800; color: #06121a; margin-top: 6px;
+    background: linear-gradient(135deg, var(--mint), #4ad585);
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+}
+.big-btn:active { transform: scale(0.98); }
+.big-btn.ad { background: linear-gradient(135deg, var(--gold), #ff9f1c); }
+.big-btn.ghost { background: rgba(255,255,255,0.1); color: #fff; }
+.big-btn:disabled { opacity: 0.5; }
+
+/* Revive overlay */
+#revive-screen {
+    position: absolute; inset: 0; display: none; flex-direction: column;
+    align-items: center; justify-content: center; z-index: 40;
+    background: rgba(10,10,26,0.92); backdrop-filter: blur(4px); padding: 24px;
+}
+#revive-screen h2 { color: #fff; font-size: 26px; font-weight: 800; margin-bottom: 6px; }
+#revive-screen .rsub { color: #8a8aa8; font-size: 14px; margin-bottom: 20px; text-align: center; }
+.revive-ring {
+    width: 110px; height: 110px; border-radius: 50%; margin-bottom: 22px; position: relative;
+    background: conic-gradient(var(--mint) var(--p,100%), rgba(255,255,255,0.1) 0);
+    display: flex; align-items: center; justify-content: center;
+}
+.revive-ring::after {
+    content: ''; position: absolute; inset: 8px; border-radius: 50%; background: #0c0c1e;
+}
+.revive-ring .num { position: relative; z-index: 1; color: #fff; font-size: 44px; font-weight: 900; }
+#revive-screen .btns { width: 100%; max-width: 360px; }
+
+/* Result screen additions */
+#result-coins {
+    color: var(--gold); font-size: 22px; font-weight: 800; margin-bottom: 8px;
+    display: flex; align-items: center; gap: 6px;
+}
+#result-extra { width: 100%; max-width: 340px; margin-top: 10px; }
+#result-buttons { display: flex; gap: 10px; width: 100%; max-width: 340px; margin-top: 14px; }
+#result-buttons .big-btn { margin-top: 0; }
+
+/* Toast */
+#toast {
+    position: absolute; bottom: 90px; left: 50%; transform: translateX(-50%) translateY(20px);
+    background: rgba(20,20,40,0.95); border: 1px solid rgba(99,248,207,0.3);
+    color: #fff; padding: 12px 22px; border-radius: 24px; font-size: 14px; font-weight: 600;
+    z-index: 100; opacity: 0; transition: all 0.3s; pointer-events: none; white-space: nowrap;
+}
+#toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+/* Settings rows */
+.setting-row {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 14px 4px; border-bottom: 1px solid rgba(255,255,255,0.08); color: #fff; font-size: 15px;
+}
+.toggle { width: 50px; height: 28px; border-radius: 14px; background: rgba(255,255,255,0.15); position: relative; cursor: pointer; transition: background 0.2s; }
+.toggle.on { background: var(--mint); }
+.toggle::after { content:''; position:absolute; top:3px; left:3px; width:22px; height:22px; border-radius:50%; background:#fff; transition: left 0.2s; }
+.toggle.on::after { left: 25px; }
 </style>
 </head>
 <body>
 
 <div id="ui-overlay">
+    <div id="top-bar">
+        <div class="pill" id="coins-pill"><span class="ico">🪙</span><span id="coins-amount">0</span><span class="plus">＋</span></div>
+        <div class="pill" id="gems-pill"><span class="ico">💎</span><span id="gems-amount">0</span><span class="plus">＋</span></div>
+    </div>
+
     <div id="main-menu">
         <h1>Snakeball</h1>
         <div class="subtitle">Endless Runner</div>
         <button id="tap-to-play">TAP TO PLAY</button>
         <div id="best-score-display"></div>
-        <button id="sound-toggle">🔊</button>
+
+        <div id="powerup-row"></div>
+
+        <div id="home-actions">
+            <div class="home-btn" id="btn-shop"><span class="em">🛍️</span><span>SHOP</span></div>
+            <div class="home-btn" id="btn-missions"><span class="em">🎯</span><span>MISSIONS</span><span class="badge" id="missions-badge" style="display:none">0</span></div>
+            <div class="home-btn" id="btn-daily"><span class="em">🎁</span><span>DAILY</span><span class="badge" id="daily-badge" style="display:none">!</span></div>
+            <div class="home-btn" id="btn-settings"><span class="em">⚙️</span><span>SETTINGS</span></div>
+        </div>
     </div>
 
     <div id="game-ui">
         <div id="score-display">0</div>
         <div id="ball-count"></div>
+        <div id="run-coins" style="display:none">🪙 <span id="run-coins-amount">0</span></div>
+        <div id="combo-display"></div>
         <div id="mega-timer-wrap">
             <div id="mega-timer-bar"></div>
         </div>
@@ -134,18 +369,688 @@ canvas { display: block; width: 100%; height: 100%; }
 
     <div id="touch-area"></div>
 
+    <div id="revive-screen">
+        <h2>CONTINUE?</h2>
+        <div class="rsub">Keep your run alive and beat your best!</div>
+        <div class="revive-ring"><span class="num" id="revive-count">5</span></div>
+        <div class="btns">
+            <button class="big-btn ad" id="revive-ad">▶  WATCH AD TO REVIVE</button>
+            <button class="big-btn" id="revive-gem" style="margin-top:10px">💎 <span id="revive-gem-cost">5</span>  REVIVE NOW</button>
+            <button class="big-btn ghost" id="revive-no" style="margin-top:10px">No thanks</button>
+        </div>
+    </div>
+
     <div id="result-screen">
         <h2>GAME OVER</h2>
         <div id="final-score">0</div>
         <div id="new-best">NEW BEST!</div>
         <div id="best-score-result"></div>
-        <button id="play-again">PLAY AGAIN</button>
+        <div id="result-coins">🪙 +<span id="result-coins-amount">0</span></div>
+        <div id="result-extra"></div>
+        <div id="result-buttons">
+            <button class="big-btn ad" id="double-coins">▶ DOUBLE 🪙</button>
+            <button class="big-btn" id="play-again">PLAY AGAIN</button>
+        </div>
+        <button class="big-btn ghost" id="back-home" style="max-width:340px;margin-top:10px">HOME</button>
     </div>
+
+    <!-- Modals -->
+    <div class="modal-backdrop" id="shop-modal">
+        <div class="modal">
+            <button class="modal-close" data-close>✕</button>
+            <h2>🛍️ Shop</h2>
+            <div class="sub">Spend coins & gems — look good, run further</div>
+            <div class="tabs">
+                <div class="tab active" data-shop-tab="skins">Skins</div>
+                <div class="tab" data-shop-tab="powerups">Power-ups</div>
+                <div class="tab" data-shop-tab="store">Get Coins</div>
+            </div>
+            <div id="shop-body"></div>
+        </div>
+    </div>
+
+    <div class="modal-backdrop" id="missions-modal">
+        <div class="modal">
+            <button class="modal-close" data-close>✕</button>
+            <h2>🎯 Daily Missions</h2>
+            <div class="sub">Resets every day — come back for more</div>
+            <div id="missions-body"></div>
+        </div>
+    </div>
+
+    <div class="modal-backdrop" id="daily-modal">
+        <div class="modal">
+            <button class="modal-close" data-close>✕</button>
+            <h2>🎁 Daily Reward</h2>
+            <div class="sub">Log in every day for bigger rewards</div>
+            <div class="daily-grid" id="daily-grid"></div>
+            <button class="big-btn" id="daily-claim">CLAIM</button>
+        </div>
+    </div>
+
+    <div class="modal-backdrop" id="settings-modal">
+        <div class="modal">
+            <button class="modal-close" data-close>✕</button>
+            <h2>⚙️ Settings</h2>
+            <div class="sub" id="settings-platform"></div>
+            <div class="setting-row">Sound<div class="toggle on" id="set-sound"></div></div>
+            <div class="setting-row">Haptics<div class="toggle on" id="set-haptics"></div></div>
+            <div class="setting-row" id="set-restore-row" style="cursor:pointer">Restore Purchases<span style="color:var(--mint);font-size:13px">↺</span></div>
+            <div class="setting-row" id="set-reset-row" style="cursor:pointer;border-bottom:none">Reset Progress<span style="color:#ff6b6b;font-size:13px">⟲</span></div>
+        </div>
+    </div>
+
+    <div id="toast"></div>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
 
-<script>
+<!-- ============================================================
+     SB: Economy + Cross-Platform Bridge + Store/Missions UI
+     (Mirrors MinefieldSweeper's BridgeManager / AdManager / IAP
+      patterns, adapted to a single-file game.)
+     Loaded as type="module" so the granite/vite Toss build can bundle the
+     @apps-in-toss SDK dynamic imports into a lazy chunk. Module scripts run
+     in document order, so SB is defined before the game module below; on raw
+     web/iOS/Android the bare dynamic imports never execute (toss branch only).
+     ============================================================ -->
+<script type="module">
+(function () {
+'use strict';
+
+// ---------- Toss invite-a-friend reward module (set after registering in Toss console) ----------
+const TOSS_AD_GROUP_ID = '';            // Toss AdMob ad group id (from console)
+const TOSS_CONTACTS_VIRAL_MODULE_ID = '';
+
+// ---------- Persistence ----------
+const LS = window.localStorage;
+const today = () => new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+function load(key, def) {
+    try { const v = LS.getItem(key); return v === null ? def : JSON.parse(v); }
+    catch (e) { return def; }
+}
+function save(key, val) { try { LS.setItem(key, JSON.stringify(val)); } catch (e) {} }
+
+// ---------- Catalog ----------
+const SKINS = [
+    { id:'white',   name:'Classic',  desc:'The original.',          cost:{}, color:0xffffff, emissive:0x000000, ei:0,   metal:0.5, rough:0.2 },
+    { id:'mint',    name:'Mint',     desc:'Cool & fresh.',          cost:{coins:300},  color:0x63f8cf, emissive:0x1f8f78, ei:0.4, metal:0.4, rough:0.2 },
+    { id:'lime',    name:'Lime',     desc:'Electric green.',        cost:{coins:600},  color:0x4ad585, emissive:0x2f8f55, ei:0.5, metal:0.3, rough:0.2 },
+    { id:'coral',   name:'Coral',    desc:'Warm & loud.',           cost:{coins:900},  color:0xe87352, emissive:0x8f3f2a, ei:0.4, metal:0.3, rough:0.2 },
+    { id:'gold',    name:'Gold',     desc:'Shiny flex.',            cost:{coins:1800}, color:0xffd23f, emissive:0xaa7a00, ei:0.5, metal:0.9, rough:0.1 },
+    { id:'ruby',    name:'Ruby',     desc:'Deep red glow.',         cost:{coins:2800}, color:0xff2d55, emissive:0xaa0022, ei:0.7, metal:0.6, rough:0.1 },
+    { id:'galaxy',  name:'Galaxy',   desc:'Cosmic purple.',         cost:{gems:30},    color:0xa965aa, emissive:0x6a2faa, ei:0.8, metal:0.7, rough:0.1 },
+    { id:'rainbow', name:'Rainbow',  desc:'Animated hue cycle.',    cost:{gems:80},    color:0xffffff, emissive:0xff0000, ei:0.9, metal:0.8, rough:0.1, rainbow:true },
+];
+
+const POWERUPS = [
+    { id:'headstart', name:'Head Start', em:'🚀', desc:'Begin the run with +8 balls.',     cost:{coins:200} },
+    { id:'magnet',    name:'Coin Magnet', em:'🧲', desc:'Auto-collect coins all run long.', cost:{coins:250} },
+    { id:'shield',    name:'Shield',     em:'🛡️', desc:'Survive one deadly hit.',          cost:{coins:300} },
+];
+
+// IAP products (SKU ids must match native store + Cloud Function PRODUCTS map)
+const STORE = [
+    { id:'coins_small', kind:'iap', title:'Pouch of Coins', grant:{coins:5000},  price:'$0.99', em:'🪙' },
+    { id:'coins_big',   kind:'iap', title:'Chest of Coins',  grant:{coins:30000}, price:'$4.99', em:'🪙', best:'+20% bonus' },
+    { id:'gems_small',  kind:'iap', title:'Handful of Gems', grant:{gems:50},     price:'$2.99', em:'💎' },
+    { id:'gems_big',    kind:'iap', title:'Bag of Gems',     grant:{gems:200},    price:'$9.99', em:'💎', best:'+25% bonus' },
+    { id:'remove_ads',  kind:'iap', title:'Remove Forced Ads', grant:{removeAds:true}, price:'$3.99', em:'🚫', noncon:true },
+    { id:'starter_pack',kind:'iap', title:'Starter Pack',    grant:{coins:10000,gems:50,skin:'gold',removeAds:true}, price:'$4.99', em:'⭐', noncon:true, best:'BEST VALUE' },
+];
+
+const MISSION_POOL = [
+    { id:'games3',  text:'Play 3 games',            type:'games',        target:3,   reward:{coins:150} },
+    { id:'score500',text:'Reach 500 in one run',    type:'bestRunScore', target:500, reward:{coins:200} },
+    { id:'cubes100',text:'Break 100 cubes',         type:'cubes',        target:100, reward:{coins:250} },
+    { id:'coins300',text:'Collect 300 coins',       type:'coins',        target:300, reward:{coins:200} },
+    { id:'mega3',   text:'Grab 3 mega balls',       type:'megas',        target:3,   reward:{gems:5} },
+    { id:'combo15', text:'Land a 15x combo',        type:'bestCombo',    target:15,  reward:{coins:300} },
+    { id:'balls40', text:'Reach 40 balls in a run', type:'bestBalls',    target:40,  reward:{coins:200} },
+    { id:'revive1', text:'Revive once',             type:'revives',      target:1,   reward:{coins:150} },
+];
+
+// 7-day login streak rewards
+const DAILY_REWARDS = [
+    {coins:100}, {coins:200}, {coins:400}, {gems:5}, {coins:800}, {coins:1500}, {coins:2000, gems:10},
+];
+
+// ---------- State ----------
+const state = {
+    coins:   load('sb_coins', 0),
+    gems:    load('sb_gems', 0),
+    skin:    load('sb_skin', 'white'),
+    owned:   load('sb_owned', ['white']),
+    removeAds: load('sb_removeads', false),
+    powerups: load('sb_powerups', { headstart:0, magnet:0, shield:0 }),
+    armed:    load('sb_armed', { headstart:false, magnet:false, shield:false }),
+    settings: load('sb_settings', { sound:true, haptics:true }),
+    daily:    load('sb_daily', { last:'', streak:0 }),
+    missions: load('sb_missions', null),
+    stats:    load('sb_stats', { games:0, cubes:0, coins:0, megas:0, revives:0, bestRunScore:0, bestCombo:0, bestBalls:0 }),
+};
+function persist() {
+    save('sb_coins', state.coins); save('sb_gems', state.gems);
+    save('sb_skin', state.skin); save('sb_owned', state.owned);
+    save('sb_removeads', state.removeAds); save('sb_powerups', state.powerups);
+    save('sb_armed', state.armed); save('sb_settings', state.settings);
+    save('sb_daily', state.daily); save('sb_missions', state.missions);
+    save('sb_stats', state.stats);
+}
+
+// ---------- Platform Bridge (BridgeManager + AdManager fused) ----------
+function detectPlatform() {
+    if (window.webkit?.messageHandlers?.adHandler) return 'ios';
+    if (window.AndroidBridge) return 'android';
+    if (window.ReactNativeWebView) return 'toss';
+    return 'web';
+}
+const platform = detectPlatform();
+const bridgeCallbacks = {};
+window.__bridgeCallbacks = (name, data) => { bridgeCallbacks[name]?.(data); };
+window.__adRewardCallback = (success, type, amount) => {
+    bridgeCallbacks['adReward']?.({ success, type, amount });
+};
+function postNative(handler, action, data = {}) {
+    if (platform === 'ios') {
+        window.webkit?.messageHandlers?.[handler]?.postMessage({ action, ...data });
+    } else if (platform === 'android') {
+        try { window.AndroidBridge[action]?.(JSON.stringify(data)); }
+        catch (e) { try { window.AndroidBridge[action]?.(); } catch (_) {} }
+    }
+}
+
+function vibrate(type = 'light') {
+    if (!state.settings.haptics) return;
+    const patternMap = { light:10, medium:20, heavy:35, success:[10,40,10], error:[30,30,30] };
+    if (platform === 'ios' || platform === 'android') {
+        postNative('hapticHandler', 'vibrate', { type, pattern: patternMap[type] });
+    } else if (platform === 'toss') {
+        const tossTypeMap = { light:'tickWeak', medium:'tap', heavy:'basicMedium', success:'success', error:'error' };
+        import('@apps-in-toss/web-framework')
+            .then(({ generateHapticFeedback }) => generateHapticFeedback({ type: tossTypeMap[type] || 'tap' }))
+            .catch(() => { if (navigator.vibrate) navigator.vibrate(patternMap[type]); });
+    } else if (navigator.vibrate) {
+        navigator.vibrate(patternMap[type]);
+    }
+}
+
+// Show a rewarded ad. Resolves true if reward earned, false otherwise.
+function showRewardedAd() {
+    // Web / dev: simulate a successful short ad.
+    if (platform === 'web') {
+        return new Promise((resolve) => {
+            toast('▶ (demo ad)…');
+            setTimeout(() => resolve(true), 700);
+        });
+    }
+    if (platform === 'toss') {
+        return new Promise(async (resolve) => {
+            try {
+                const { loadFullScreenAd, showFullScreenAd } = await import('@apps-in-toss/web-framework');
+                const loaded = await new Promise((res) => {
+                    let c = null;
+                    c = loadFullScreenAd({ options:{ adGroupId: TOSS_AD_GROUP_ID },
+                        onEvent:(e)=>{ if (e.type==='loaded'){ res(true); c?.(); } },
+                        onError:()=>{ res(false); c?.(); } });
+                });
+                if (!loaded) return resolve(false);
+                let rewarded = false, done = false, grace = null, sc = null;
+                const finish = () => { if (done) return; done = true; if (grace) clearTimeout(grace); sc?.(); resolve(rewarded); };
+                sc = showFullScreenAd({ options:{ adGroupId: TOSS_AD_GROUP_ID },
+                    onEvent:(e)=>{
+                        if (e.type==='userEarnedReward'){ rewarded = true; }
+                        else if (e.type==='dismissed'){ rewarded ? finish() : (grace = setTimeout(finish, 1500)); }
+                        else if (e.type==='failedToShow'){ finish(); }
+                    },
+                    onError:()=>finish() });
+            } catch (e) { resolve(false); }
+        });
+    }
+    // iOS / Android native
+    return new Promise((resolve) => {
+        bridgeCallbacks['adReward'] = (data) => {
+            delete bridgeCallbacks['adReward'];
+            resolve(!!data?.success);
+        };
+        postNative('adHandler', 'showRewardedAd', { customData: 'reward' });
+    });
+}
+
+// ---------- IAP ----------
+async function purchase(productId) {
+    const product = STORE.find(p => p.id === productId);
+    if (!product) return false;
+
+    if (platform === 'web') {
+        // dev mock — instant grant
+        toast('💳 (demo purchase)…');
+        await new Promise(r => setTimeout(r, 500));
+        grant(product.grant);
+        return true;
+    }
+    if (platform === 'toss') {
+        try {
+            const sdk = await import('@apps-in-toss/web-framework');
+            const res = await sdk.createOneTimePurchase?.({ productId });
+            if (res && (res.status === 'success' || res.success)) { grant(product.grant); return true; }
+            return false;
+        } catch (e) { return false; }
+    }
+    // iOS / Android: native store + (in production) server receipt verification
+    return new Promise((resolve) => {
+        bridgeCallbacks['iapPurchase'] = (data) => {
+            delete bridgeCallbacks['iapPurchase'];
+            if (data?.success) { grant(product.grant); resolve(true); }
+            else resolve(false);
+        };
+        postNative('iapHandler', 'purchase', { productId });
+    });
+}
+function restorePurchases() {
+    if (platform === 'web') { toast('Nothing to restore'); return; }
+    postNative('iapHandler', 'restorePurchases');
+    toast('Restoring…');
+}
+function grant(g) {
+    if (!g) return;
+    if (g.coins) addCoins(g.coins, true);
+    if (g.gems) addGems(g.gems, true);
+    if (g.removeAds) state.removeAds = true;
+    if (g.skin && !state.owned.includes(g.skin)) state.owned.push(g.skin);
+    persist();
+}
+
+// ---------- Economy ----------
+function addCoins(n, silent) { state.coins += n; persist(); refreshHUD(); if (!silent && n>0) toast('🪙 +' + n); }
+function spendCoins(n) { if (state.coins < n) return false; state.coins -= n; persist(); refreshHUD(); return true; }
+function addGems(n, silent) { state.gems += n; persist(); refreshHUD(); if (!silent && n>0) toast('💎 +' + n); }
+function spendGems(n) { if (state.gems < n) return false; state.gems -= n; persist(); refreshHUD(); return true; }
+function canAfford(cost) { return (state.coins >= (cost.coins||0)) && (state.gems >= (cost.gems||0)); }
+function payCost(cost) {
+    if (!canAfford(cost)) return false;
+    if (cost.coins) state.coins -= cost.coins;
+    if (cost.gems) state.gems -= cost.gems;
+    persist(); refreshHUD(); return true;
+}
+
+// ---------- Skins ----------
+function activeSkin() { return SKINS.find(s => s.id === state.skin) || SKINS[0]; }
+
+// ---------- Power-ups ----------
+function armedPowerups() { return { ...state.armed }; }
+function consumeArmed() {
+    let used = false;
+    for (const id of ['headstart','magnet','shield']) {
+        if (state.armed[id] && state.powerups[id] > 0) {
+            state.powerups[id]--; used = true;
+        }
+        state.armed[id] = false; // disarm after the run regardless
+    }
+    if (used) persist();
+    renderPowerupRow();
+}
+
+// ---------- Missions ----------
+function ensureMissions() {
+    if (!state.missions || state.missions.date !== today()) {
+        const pool = MISSION_POOL.slice();
+        const picks = [];
+        // deterministic-ish shuffle
+        for (let i = 0; i < 3 && pool.length; i++) {
+            const idx = Math.floor(Math.random() * pool.length);
+            const m = pool.splice(idx, 1)[0];
+            picks.push({ id:m.id, progress:0, claimed:false });
+        }
+        state.missions = { date: today(), list: picks };
+        persist();
+    }
+    return state.missions;
+}
+function missionDef(id) { return MISSION_POOL.find(m => m.id === id); }
+function reportRun(run) {
+    // run: { score, coins, cubes, megas, revived, combo, balls }
+    const s = state.stats;
+    s.games += 1;
+    s.cubes += run.cubes || 0;
+    s.coins += run.coins || 0;
+    s.megas += run.megas || 0;
+    s.revives += run.revived || 0;
+    s.bestRunScore = Math.max(s.bestRunScore, run.score || 0);
+    s.bestCombo = Math.max(s.bestCombo, run.combo || 0);
+    s.bestBalls = Math.max(s.bestBalls, run.balls || 0);
+
+    const m = ensureMissions();
+    for (const entry of m.list) {
+        if (entry.claimed) continue;
+        const def = missionDef(entry.id);
+        if (!def) continue;
+        const cumulative = { games:s.games, cubes:s.cubes, coins:s.coins, megas:s.megas, revives:s.revives };
+        const perRun = { bestRunScore:run.score||0, bestCombo:run.combo||0, bestBalls:run.balls||0 };
+        if (def.type in cumulative) {
+            // count only this run's contribution toward the daily target
+            entry.progress += ({ games:1, cubes:run.cubes||0, coins:run.coins||0, megas:run.megas||0, revives:run.revived||0 })[def.type];
+        } else if (def.type in perRun) {
+            entry.progress = Math.max(entry.progress, perRun[def.type]);
+        } else {
+            continue;
+        }
+        entry.progress = Math.min(entry.progress, def.target);
+    }
+    persist();
+    updateBadges();
+}
+function completedUnclaimed() {
+    const m = ensureMissions();
+    return m.list.filter(e => !e.claimed && e.progress >= (missionDef(e.id)?.target || Infinity)).length;
+}
+function claimMission(id) {
+    const m = ensureMissions();
+    const entry = m.list.find(e => e.id === id);
+    const def = missionDef(id);
+    if (!entry || !def || entry.claimed) return;
+    if (entry.progress < def.target) return;
+    entry.claimed = true;
+    grant(def.reward);
+    vibrate('success');
+    persist();
+    renderMissions(); updateBadges();
+    toast('Mission complete! ' + rewardText(def.reward));
+}
+
+// ---------- Daily reward ----------
+function dailyAvailable() { return state.daily.last !== today(); }
+function claimDaily() {
+    if (!dailyAvailable()) return;
+    const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+    const streak = state.daily.last === yesterday ? Math.min(state.daily.streak + 1, 7) : 1;
+    const reward = DAILY_REWARDS[(streak - 1) % 7];
+    state.daily = { last: today(), streak };
+    grant(reward);
+    vibrate('success');
+    persist();
+    renderDaily(); updateBadges();
+    toast('Day ' + streak + ' reward! ' + rewardText(reward));
+}
+
+function rewardText(r) {
+    const parts = [];
+    if (r.coins) parts.push('🪙 ' + r.coins);
+    if (r.gems) parts.push('💎 ' + r.gems);
+    return parts.join('  ');
+}
+function costText(c) {
+    if (c.coins) return '🪙 ' + c.coins;
+    if (c.gems) return '💎 ' + c.gems;
+    return 'FREE';
+}
+
+// ============================================================
+// UI RENDERING
+// ============================================================
+const $ = (id) => document.getElementById(id);
+let toastTimer = null;
+function toast(msg) {
+    const el = $('toast'); if (!el) return;
+    el.textContent = msg; el.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => el.classList.remove('show'), 1800);
+}
+
+function refreshHUD() {
+    if ($('coins-amount')) $('coins-amount').textContent = state.coins.toLocaleString();
+    if ($('gems-amount')) $('gems-amount').textContent = state.gems.toLocaleString();
+}
+function updateBadges() {
+    const mb = $('missions-badge'); const c = completedUnclaimed();
+    if (mb) { mb.style.display = c > 0 ? 'flex' : 'none'; mb.textContent = c; }
+    const db = $('daily-badge'); if (db) db.style.display = dailyAvailable() ? 'flex' : 'none';
+}
+
+// --- Power-up row (home) ---
+function renderPowerupRow() {
+    const row = $('powerup-row'); if (!row) return;
+    row.innerHTML = '';
+    for (const p of POWERUPS) {
+        const owned = state.powerups[p.id] || 0;
+        const armed = state.armed[p.id] && owned > 0;
+        const slot = document.createElement('div');
+        slot.className = 'pu-slot' + (armed ? ' armed' : '');
+        slot.innerHTML = `<span class="em">${p.em}</span><span>${p.name.split(' ')[0]}</span>` +
+            (owned > 0 ? `<span class="cnt">${owned}</span>` : '');
+        slot.onclick = () => {
+            if (owned > 0) {
+                state.armed[p.id] = !state.armed[p.id];
+                vibrate('light'); persist(); renderPowerupRow();
+            } else {
+                openShop('powerups');
+            }
+        };
+        row.appendChild(slot);
+    }
+}
+
+// --- Shop ---
+let shopTab = 'skins';
+function openShop(tab) { shopTab = tab || 'skins'; renderShop(); $('shop-modal').classList.add('open'); }
+function renderShop() {
+    document.querySelectorAll('[data-shop-tab]').forEach(t =>
+        t.classList.toggle('active', t.dataset.shopTab === shopTab));
+    const body = $('shop-body'); body.innerHTML = '';
+    if (shopTab === 'skins') {
+        const grid = document.createElement('div'); grid.className = 'grid';
+        for (const s of SKINS) {
+            const owned = state.owned.includes(s.id);
+            const equipped = state.skin === s.id;
+            const card = document.createElement('div');
+            card.className = 'card' + (equipped ? ' equipped' : '');
+            const hex = '#' + s.color.toString(16).padStart(6, '0');
+            const sw = s.rainbow
+                ? 'background:conic-gradient(red,orange,yellow,lime,cyan,blue,magenta,red)'
+                : `background:${hex}`;
+            let btn;
+            if (equipped) btn = `<button class="buy-btn owned" disabled>EQUIPPED</button>`;
+            else if (owned) btn = `<button class="buy-btn owned" data-equip="${s.id}">EQUIP</button>`;
+            else {
+                const gem = s.cost.gems ? ' gem' : '';
+                const afford = canAfford(s.cost);
+                btn = `<button class="buy-btn${gem}" data-buyskin="${s.id}" ${afford?'':'disabled'}>${costText(s.cost)}</button>`;
+            }
+            card.innerHTML = `<div class="swatch" style="${sw}"></div><div class="name">${s.name}</div>` +
+                `<div class="desc">${s.desc}</div>${btn}`;
+            grid.appendChild(card);
+        }
+        body.appendChild(grid);
+    } else if (shopTab === 'powerups') {
+        for (const p of POWERUPS) {
+            const owned = state.powerups[p.id] || 0;
+            const afford = canAfford(p.cost);
+            const card = document.createElement('div');
+            card.className = 'card';
+            card.style.flexDirection = 'row';
+            card.style.alignItems = 'center';
+            card.style.textAlign = 'left';
+            card.innerHTML =
+                `<div style="font-size:34px">${p.em}</div>` +
+                `<div style="flex:1"><div class="name">${p.name} ${owned>0?`<span style="color:var(--mint)">×${owned}</span>`:''}</div>` +
+                `<div class="desc" style="min-height:auto">${p.desc}</div></div>` +
+                `<button class="buy-btn" style="width:auto;padding:8px 14px" data-buypu="${p.id}" ${afford?'':'disabled'}>${costText(p.cost)}</button>`;
+            body.appendChild(card);
+        }
+        const hint = document.createElement('div');
+        hint.style.cssText = 'color:#8a8aa8;font-size:12px;text-align:center;margin-top:14px';
+        hint.textContent = 'Tip: tap a power-up on the home screen to arm it for your next run.';
+        body.appendChild(hint);
+    } else {
+        for (const p of STORE) {
+            const card = document.createElement('div');
+            card.className = 'card';
+            card.style.flexDirection = 'row';
+            card.style.alignItems = 'center';
+            card.style.textAlign = 'left';
+            const grantTxt = [
+                p.grant.coins ? '🪙 ' + p.grant.coins.toLocaleString() : '',
+                p.grant.gems ? '💎 ' + p.grant.gems : '',
+                p.grant.removeAds ? '🚫 No forced ads' : '',
+                p.grant.skin ? '🎨 ' + p.grant.skin + ' skin' : '',
+            ].filter(Boolean).join('  ');
+            const isOwnedNoncon = p.noncon && p.id === 'remove_ads' && state.removeAds;
+            card.innerHTML =
+                `<div style="font-size:32px">${p.em}</div>` +
+                `<div style="flex:1"><div class="name">${p.title} ${p.best?`<span style="color:var(--gold);font-size:10px">${p.best}</span>`:''}</div>` +
+                `<div class="desc" style="min-height:auto">${grantTxt}</div></div>` +
+                (isOwnedNoncon
+                    ? `<button class="buy-btn owned" disabled>OWNED</button>`
+                    : `<button class="buy-btn cash" style="width:auto;padding:8px 14px" data-buyiap="${p.id}">${p.price}</button>`);
+            body.appendChild(card);
+        }
+    }
+    // wire buttons
+    body.querySelectorAll('[data-equip]').forEach(b => b.onclick = () => {
+        state.skin = b.dataset.equip; persist(); vibrate('light'); renderShop(); applySkinHook();
+    });
+    body.querySelectorAll('[data-buyskin]').forEach(b => b.onclick = () => {
+        const s = SKINS.find(x => x.id === b.dataset.buyskin);
+        if (payCost(s.cost)) { state.owned.push(s.id); state.skin = s.id; persist(); vibrate('success'); renderShop(); applySkinHook(); toast('Unlocked ' + s.name + '!'); }
+        else toast('Not enough ' + (s.cost.gems ? 'gems' : 'coins'));
+    });
+    body.querySelectorAll('[data-buypu]').forEach(b => b.onclick = () => {
+        const p = POWERUPS.find(x => x.id === b.dataset.buypu);
+        if (payCost(p.cost)) { state.powerups[p.id] = (state.powerups[p.id]||0)+1; persist(); vibrate('success'); renderShop(); renderPowerupRow(); toast('Got ' + p.name + '!'); }
+        else toast('Not enough coins');
+    });
+    body.querySelectorAll('[data-buyiap]').forEach(b => b.onclick = async () => {
+        b.disabled = true;
+        const ok = await purchase(b.dataset.buyiap);
+        b.disabled = false;
+        if (ok) { vibrate('success'); renderShop(); refreshHUD(); toast('Purchase complete!'); }
+        else toast('Purchase cancelled');
+    });
+}
+
+// --- Missions ---
+function renderMissions() {
+    const m = ensureMissions();
+    const body = $('missions-body'); if (!body) return;
+    body.innerHTML = '';
+    for (const entry of m.list) {
+        const def = missionDef(entry.id); if (!def) continue;
+        const done = entry.progress >= def.target;
+        const pct = Math.min(100, (entry.progress / def.target) * 100);
+        const row = document.createElement('div');
+        row.className = 'mission';
+        row.innerHTML =
+            `<div class="mtop"><span class="mname">${def.text}</span><span class="mrew">${rewardText(def.reward)}</span></div>` +
+            `<div class="pbar"><div style="width:${pct}%"></div></div>` +
+            `<div class="pmeta"><span class="pcount">${Math.min(entry.progress, def.target)} / ${def.target}</span>` +
+            (entry.claimed
+                ? `<button class="claim-btn done" disabled>CLAIMED ✓</button>`
+                : `<button class="claim-btn" data-claim="${entry.id}" ${done?'':'disabled'}>${done?'CLAIM':'LOCKED'}</button>`) +
+            `</div>`;
+        body.appendChild(row);
+    }
+    body.querySelectorAll('[data-claim]').forEach(b => b.onclick = () => claimMission(b.dataset.claim));
+}
+
+// --- Daily ---
+function renderDaily() {
+    const grid = $('daily-grid'); if (!grid) return;
+    grid.innerHTML = '';
+    const claimedToday = !dailyAvailable();
+    const curStreak = state.daily.streak || 0;
+    const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+    // Effective streak that the NEXT claim will award (mirrors claimDaily logic)
+    const nextStreak = state.daily.last === yesterday ? Math.min(curStreak + 1, 7) : 1;
+    for (let i = 0; i < 7; i++) {
+        const r = DAILY_REWARDS[i];
+        const dayNum = i + 1;
+        const isClaimed = claimedToday ? dayNum <= curStreak : dayNum < nextStreak;
+        const isToday = !claimedToday && dayNum === nextStreak;
+        const cell = document.createElement('div');
+        cell.className = 'day' + (i === 6 ? ' bonus' : '') + (isClaimed ? ' claimed' : '') + (isToday ? ' today' : '');
+        cell.innerHTML = `<div class="dlabel">DAY ${dayNum}</div><div class="dval">${rewardText(r)}</div>`;
+        grid.appendChild(cell);
+    }
+    const btn = $('daily-claim');
+    if (btn) {
+        btn.disabled = !dailyAvailable();
+        btn.textContent = dailyAvailable() ? 'CLAIM TODAY' : 'COME BACK TOMORROW';
+    }
+}
+
+// --- Settings ---
+function renderSettings() {
+    const names = { ios:'iOS', android:'Android', toss:'Apps in Toss', web:'Web' };
+    if ($('settings-platform')) $('settings-platform').textContent = 'Platform: ' + (names[platform] || platform);
+    if ($('set-sound')) $('set-sound').classList.toggle('on', state.settings.sound);
+    if ($('set-haptics')) $('set-haptics').classList.toggle('on', state.settings.haptics);
+}
+
+// ---------- Wiring ----------
+function applySkinHook() { if (window.__applySkin) window.__applySkin(); }
+
+function wire() {
+    refreshHUD();
+    ensureMissions();
+    renderPowerupRow();
+    updateBadges();
+
+    $('coins-pill').onclick = () => openShop('store');
+    $('gems-pill').onclick = () => openShop('store');
+    $('btn-shop').onclick = () => openShop('skins');
+    $('btn-missions').onclick = () => { renderMissions(); $('missions-modal').classList.add('open'); };
+    $('btn-daily').onclick = () => { renderDaily(); $('daily-modal').classList.add('open'); };
+    $('btn-settings').onclick = () => { renderSettings(); $('settings-modal').classList.add('open'); };
+
+    document.querySelectorAll('[data-shop-tab]').forEach(t =>
+        t.onclick = () => { shopTab = t.dataset.shopTab; renderShop(); });
+    document.querySelectorAll('[data-close]').forEach(b =>
+        b.onclick = () => b.closest('.modal-backdrop').classList.remove('open'));
+    document.querySelectorAll('.modal-backdrop').forEach(bd =>
+        bd.onclick = (e) => { if (e.target === bd) bd.classList.remove('open'); });
+
+    $('daily-claim').onclick = claimDaily;
+    $('set-sound').onclick = () => { state.settings.sound = !state.settings.sound; persist(); renderSettings(); if (window.__setSound) window.__setSound(state.settings.sound); };
+    $('set-haptics').onclick = () => { state.settings.haptics = !state.settings.haptics; persist(); renderSettings(); };
+    $('set-restore-row').onclick = restorePurchases;
+    $('set-reset-row').onclick = () => {
+        if (confirm('Reset ALL progress, coins, gems and unlocks? This cannot be undone.')) {
+            ['sb_coins','sb_gems','sb_skin','sb_owned','sb_removeads','sb_powerups','sb_armed','sb_daily','sb_missions','sb_stats'].forEach(k => LS.removeItem(k));
+            location.reload();
+        }
+    };
+
+    // Auto-pop daily reward once per day on first load
+    if (dailyAvailable() && state.daily.last !== '') {
+        // returning player — surface the daily
+        setTimeout(() => { renderDaily(); $('daily-modal').classList.add('open'); }, 600);
+    }
+}
+
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', wire);
+else wire();
+
+// ---------- Public API for the game ----------
+window.SB = {
+    platform,
+    state,
+    showRewardedAd,
+    vibrate,
+    addCoins, addGems, spendGems, spendCoins,
+    activeSkin,
+    armedPowerups, consumeArmed,
+    reportRun,
+    refreshHUD, updateBadges,
+    toast,
+    hasRemoveAds: () => state.removeAds,
+    soundOn: () => state.settings.sound,
+    hapticsOn: () => state.settings.haptics,
+    openShop,
+};
+})();
+</script>
+
+<script type="module">
 
 // ============================================================
 // CONSTANTS (matching Unity original)
@@ -197,7 +1102,8 @@ const CUBE_TYPE_MAP = {
 // AUDIO (Web Audio API synth sounds)
 // ============================================================
 let audioCtx = null;
-let soundEnabled = true;
+let soundEnabled = window.SB ? SB.soundOn() : true;
+window.__setSound = (on) => { soundEnabled = on; };
 
 function initAudio() {
     if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -364,6 +1270,22 @@ let didJumpDuringCollision = false;
 let megaBallTimer = 0;
 let preMegaBallSpeed = INITIAL_SPEED;
 let bestScore = parseInt(localStorage.getItem('snakeball_best') || '0');
+
+// ---- Economy / progression run-state ----
+let runCoins = 0;            // coins collected this run
+let combo = 0;              // consecutive cube breaks
+let bestComboThisRun = 0;
+let comboTimer = 0;         // resets combo if it hits 0
+const COMBO_TIMEOUT = 3.0;
+let cubesBrokenThisRun = 0;
+let megasThisRun = 0;
+let ballCountPeak = INITIAL_BALL_COUNT;
+let invulnTimer = 0;        // post-revive / shield grace (treat hits as safe)
+let shieldActive = false;   // armed shield power-up: survive one deadly hit
+let magnetActive = false;   // armed magnet power-up: auto-collect coins
+let revivesUsed = 0;
+const MAX_REVIVES = 3;
+let pendingDeathHandled = false;
 let flickerTimer = 0;
 let megaFlickerTimer = 0;
 let playerWorldZ = 0; // track ball's world position for spawning
@@ -540,6 +1462,31 @@ for (let i = 0; i < MEGABALL_POOL_SIZE; i++) {
     mesh.visible = false;
     scene.add(mesh);
     megaBallItems.push({ mesh, active: false, originalPos: new THREE.Vector3() });
+}
+
+// Coin pickups pool
+const coinGeometry = new THREE.CylinderGeometry(0.22, 0.22, 0.06, 16);
+coinGeometry.rotateX(Math.PI / 2); // face the player
+const coinMaterial = new THREE.MeshStandardMaterial({
+    color: 0xffd23f, emissive: 0xaa7a00, emissiveIntensity: 0.5, roughness: 0.2, metalness: 0.9
+});
+const coinItems = [];
+const COIN_POOL_SIZE = 40;
+for (let i = 0; i < COIN_POOL_SIZE; i++) {
+    const mesh = new THREE.Mesh(coinGeometry, coinMaterial);
+    mesh.visible = false;
+    scene.add(mesh);
+    coinItems.push({ mesh, active: false, originalPos: new THREE.Vector3(), spin: Math.random() * Math.PI });
+}
+function getFreeCoin() { for (const c of coinItems) if (!c.active) return c; return null; }
+function spawnCoin(z, lane) {
+    const c = getFreeCoin();
+    if (!c) return;
+    c.active = true;
+    const x = laneToX(lane);
+    c.originalPos.set(x, 0.55, z);
+    c.mesh.position.set(x, 0.55, z);
+    c.mesh.visible = true;
 }
 
 // Particles pool
@@ -872,6 +1819,15 @@ function spawnPatternAt(z) {
             break;
         }
     }
+
+    // Sprinkle a coin trail alongside most patterns (the core grind currency).
+    if (pattern !== PATTERN_FREEBALL && pattern !== PATTERN_MEGABALL && Math.random() < 0.7) {
+        const lane = Math.floor(Math.random() * 5);
+        const trail = 3 + Math.floor(Math.random() * 3);
+        for (let i = 0; i < trail; i++) {
+            spawnCoin(z + 1.5 + i * 1.4, lane);
+        }
+    }
 }
 
 function ensureRoadsAndPatterns() {
@@ -914,6 +1870,12 @@ function ensureRoadsAndPatterns() {
         if (m.active && m.mesh.position.z < ballZ + DESPAWN_DISTANCE) {
             m.active = false;
             m.mesh.visible = false;
+        }
+    }
+    for (const c of coinItems) {
+        if (c.active && c.mesh.position.z < ballZ + DESPAWN_DISTANCE) {
+            c.active = false;
+            c.mesh.visible = false;
         }
     }
 }
@@ -982,6 +1944,7 @@ function showScorePopup(amount) {
 function checkCollisions() {
     const ballPos = mainBallGroup.position;
     const isMega = megaBallTimer > 0;
+    const safe = isMega || invulnTimer > 0; // destroy everything without dying
     const ballRadius = isMega ? 0.55 : 0.35;
 
     // Cubes
@@ -992,10 +1955,14 @@ function checkCollisions() {
         const dz = Math.abs(ballPos.z - cube.mesh.position.z);
 
         if (dx < (0.4 + ballRadius) && dy < (0.4 + ballRadius) && dz < (0.4 + ballRadius)) {
-            if (isMega) {
-                // Mega ball destroys instantly
-                score += cube.score;
-                showScorePopup(cube.score);
+            if (safe) {
+                // Mega ball / invulnerability destroys instantly and safely
+                const mult = comboMultiplier();
+                const gained = Math.round(cube.score * mult);
+                score += gained;
+                addCombo();
+                cubesBrokenThisRun++;
+                showScorePopup(gained);
                 spawnParticles(cube.mesh.position, cube.mesh.material.color, 15);
                 cube.active = false;
                 cube.mesh.visible = false;
@@ -1005,11 +1972,15 @@ function checkCollisions() {
             }
 
             if (cube.type === IRON_CUBE_TYPE) {
-                // Iron cube = instant death
+                // Iron cube = instant death (unless a shield is armed)
+                if (shieldActive) {
+                    consumeShield(cube);
+                    continue;
+                }
                 playSound('ironCube');
                 cameraShake = 0.5;
                 ballCount = 0;
-                showGameOver();
+                triggerDeath();
                 return;
             }
 
@@ -1018,8 +1989,12 @@ function checkCollisions() {
                 // More balls than cube HP - destroy and pass through
                 const cost = cube.hp;
                 ballCount -= cost;
-                score += cube.score;
-                showScorePopup(cube.score);
+                addCombo();
+                cubesBrokenThisRun++;
+                const mult = comboMultiplier();
+                const gained = Math.round(cube.score * mult);
+                score += gained;
+                showScorePopup(gained);
                 spawnParticles(cube.mesh.position, cube.mesh.material.color, 12);
                 cube.active = false;
                 cube.mesh.visible = false;
@@ -1027,10 +2002,13 @@ function checkCollisions() {
                 cameraShake = 0.1;
                 hittingCube = false;
                 lastCube = null;
+            } else if (shieldActive) {
+                // Shield saves the run: clear the cube for free
+                consumeShield(cube);
             } else {
-                // Not enough balls - game over, bounce back
-                ballCount = 0;
+                // Not enough balls - bounce back, offer revive / game over
                 cube.hp -= ballCount;
+                ballCount = 0;
                 updateCubeText(cube);
                 cube.shakeTimer = 0.05;
                 mainBallGroup.position.z = cube.mesh.position.z - 0.675 - HIT_BACK_DISTANCE;
@@ -1038,7 +2016,7 @@ function checkCollisions() {
                 playSound('hitCube');
                 cameraShake = 0.4;
                 spawnParticles(ballPos.clone(), new THREE.Color(1, 1, 1), 8);
-                showGameOver();
+                triggerDeath();
                 return;
             }
 
@@ -1057,7 +2035,7 @@ function checkCollisions() {
 
         // Wall is 1.0 wide, 1.0 deep
         if (dx < (0.5 + ballRadius) && dz < (0.5 + ballRadius) && ballPos.y < 1.4) {
-            if (isMega) {
+            if (safe) {
                 score += WALL_SCORE;
                 showScorePopup(WALL_SCORE);
                 spawnParticles(wall.mesh.position, new THREE.Color(0.5, 0.5, 0.7), 8);
@@ -1116,11 +2094,128 @@ function checkCollisions() {
         const dist = ballPos.distanceTo(item.mesh.position);
         if (dist < 0.75 + ballRadius) {
             activateMegaBall();
+            megasThisRun++;
             item.active = false;
             item.mesh.visible = false;
             playSound('getMega');
         }
     }
+
+    // Coins handled in updateCoins()
+}
+
+// ============================================================
+// SHIELD / DEATH / REVIVE / RESULT FLOW
+// ============================================================
+function consumeShield(cube) {
+    shieldActive = false;
+    if (cube) { cube.active = false; cube.mesh.visible = false; spawnParticles(cube.mesh.position, new THREE.Color(0.4,1,0.9), 14); }
+    invulnTimer = 1.2;
+    cameraShake = 0.25;
+    playSound('breakCube');
+    if (window.SB) { SB.vibrate('heavy'); SB.toast('🛡️ Shield saved you!'); }
+    updateUI();
+    updateFollowingBalls();
+}
+
+function triggerDeath() {
+    if (pendingDeathHandled) return;
+    pendingDeathHandled = true;
+    if (window.SB) SB.vibrate('error');
+
+    const canRevive = revivesUsed < MAX_REVIVES;
+    if (canRevive) {
+        showReviveScreen();
+    } else {
+        finalizeGameOver();
+    }
+}
+
+let reviveCountdown = 0;
+let reviveInterval = null;
+function showReviveScreen() {
+    gameState = 'revive';
+    // throw the trailing balls for drama but keep run alive
+    const gemCost = 5 + revivesUsed * 5;
+    document.getElementById('revive-gem-cost').textContent = gemCost;
+    const gemBtn = document.getElementById('revive-gem');
+    gemBtn.disabled = (window.SB && SB.state.gems < gemCost);
+    // Rewarded revive stays available even for "remove forced ads" buyers —
+    // it's opt-in, not a forced interstitial.
+
+    gameUI.style.display = 'none';
+    touchAreaEl.style.display = 'none';
+    const rs = document.getElementById('revive-screen');
+    rs.style.display = 'flex';
+
+    reviveCountdown = 5;
+    const numEl = document.getElementById('revive-count');
+    const ring = rs.querySelector('.revive-ring');
+    numEl.textContent = reviveCountdown;
+    ring.style.setProperty('--p', '100%');
+    clearInterval(reviveInterval);
+    const start = Date.now();
+    reviveInterval = setInterval(() => {
+        const elapsed = (Date.now() - start) / 1000;
+        const remain = Math.max(0, 5 - elapsed);
+        reviveCountdown = Math.ceil(remain);
+        numEl.textContent = reviveCountdown;
+        ring.style.setProperty('--p', (remain / 5 * 100) + '%');
+        if (remain <= 0) { clearInterval(reviveInterval); declineRevive(); }
+    }, 100);
+}
+
+async function reviveVia(method) {
+    clearInterval(reviveInterval);
+    if (method === 'ad') {
+        document.getElementById('revive-ad').disabled = true;
+        const rewarded = window.SB ? await SB.showRewardedAd() : true;
+        document.getElementById('revive-ad').disabled = false;
+        if (!rewarded) { showReviveScreen(); return; } // re-arm countdown if ad failed
+        doRevive();
+    } else if (method === 'gem') {
+        const gemCost = 5 + revivesUsed * 5;
+        if (window.SB && !SB.spendGems(gemCost)) { SB.toast('Not enough gems'); showReviveScreen(); return; }
+        doRevive();
+    }
+}
+
+function doRevive() {
+    revivesUsed++;
+    document.getElementById('revive-screen').style.display = 'none';
+    pendingDeathHandled = false;
+    gameState = 'playing';
+    gameUI.style.display = 'block';
+    touchAreaEl.style.display = 'block';
+
+    // Restore a survivable ball count and clear the path ahead
+    ballCount = Math.max(ballCount, INITIAL_BALL_COUNT);
+    invulnTimer = 2.5;       // grace window
+    resetCombo();
+    velocity.x = 0;
+    nextLane = currentLane;
+    canSwipe = true; canJump = true;
+
+    // clear nearby obstacles so the player doesn't instantly die again
+    for (const cube of cubes) {
+        if (cube.active && cube.mesh.position.z > playerWorldZ - 2 && cube.mesh.position.z < playerWorldZ + 12) {
+            cube.active = false; cube.mesh.visible = false;
+        }
+    }
+    for (const wall of walls) {
+        if (wall.active && wall.mesh.position.z > playerWorldZ - 2 && wall.mesh.position.z < playerWorldZ + 12) {
+            wall.active = false; wall.mesh.visible = false;
+        }
+    }
+    updateFollowingBalls();
+    updateUI();
+    if (window.SB) { SB.vibrate('success'); SB.toast('Revived! Keep going!'); }
+}
+
+function declineRevive() {
+    clearInterval(reviveInterval);
+    document.getElementById('revive-screen').style.display = 'none';
+    finalizeGameOver();
 }
 
 function activateMegaBall() {
@@ -1324,6 +2419,7 @@ function updateUI() {
     scoreDisplay.textContent = currentScore;
     ballCountDisplay.textContent = 'BALLS: ' + ballCount;
     ballCountDisplay.style.display = '';
+    if (ballCount > ballCountPeak) ballCountPeak = ballCount;
     updateBallCountSprite();
 
     // Mega ball timer bar
@@ -1359,14 +2455,30 @@ function startGame() {
 
     mainMenu.style.display = 'none';
     resultScreen.style.display = 'none';
+    document.getElementById('revive-screen').style.display = 'none';
     gameUI.style.display = 'block';
     touchAreaEl.style.display = 'block';
     tutorialOverlay.style.display = 'none';
+    document.getElementById('top-bar').style.display = 'none';
+    document.getElementById('run-coins').style.display = 'flex';
 
     resetGameState();
     ensureRoadsAndPatterns();
     updateUI();
     updateFollowingBalls();
+}
+
+function goHome() {
+    gameState = 'menu';
+    resultScreen.style.display = 'none';
+    document.getElementById('revive-screen').style.display = 'none';
+    gameUI.style.display = 'none';
+    touchAreaEl.style.display = 'none';
+    document.getElementById('run-coins').style.display = 'none';
+    document.getElementById('top-bar').style.display = 'flex';
+    mainMenu.style.display = 'flex';
+    updateBestScoreDisplay();
+    if (window.SB) { SB.refreshHUD(); SB.updateBadges(); }
 }
 
 function resetGameState() {
@@ -1393,10 +2505,28 @@ function resetGameState() {
     patternIndex = 0;
     spawnedPatternCount = 0;
 
+    // ---- run economy / progression reset ----
+    runCoins = 0;
+    combo = 0; bestComboThisRun = 0; comboTimer = 0;
+    cubesBrokenThisRun = 0; megasThisRun = 0;
+    ballCountPeak = INITIAL_BALL_COUNT;
+    invulnTimer = 0;
+    revivesUsed = 0;
+    pendingDeathHandled = false;
+    resetCombo();
+
+    // ---- armed power-ups ----
+    const armed = window.SB ? SB.armedPowerups() : { headstart:false, magnet:false, shield:false };
+    magnetActive = !!armed.magnet;
+    shieldActive = !!armed.shield;
+    if (armed.headstart) ballCount += 8;
+    document.getElementById('run-coins-amount').textContent = '0';
+
     mainBallGroup.position.set(0, BALL_GROUND_Y, 0);
     mainBallMesh.visible = true;
     megaBallMesh.visible = false;
     mainBallMesh.material.color.set(0xffffff);
+    applyActiveSkin();
     updateBallCountSprite();
 
     // Reset all pools
@@ -1404,6 +2534,7 @@ function resetGameState() {
     for (const w of walls) { w.active = false; w.mesh.visible = false; }
     for (const b of freeBallItems) { b.active = false; b.mesh.visible = false; }
     for (const m of megaBallItems) { m.active = false; m.mesh.visible = false; }
+    for (const c of coinItems) { c.active = false; c.mesh.visible = false; }
     for (const p of particles) { p.active = false; p.mesh.visible = false; }
     for (const fb of followingBalls) {
         fb.active = false;
@@ -1412,7 +2543,10 @@ function resetGameState() {
     }
 }
 
-function showGameOver() {
+let lastRunBaseCoins = 0;
+let coinsDoubled = false;
+
+function finalizeGameOver() {
     gameState = 'result';
 
     // Throw following balls
@@ -1429,7 +2563,8 @@ function showGameOver() {
     const finalScore = score + Math.floor(gameTimer);
     document.getElementById('final-score').textContent = finalScore;
 
-    if (finalScore > bestScore) {
+    const isBest = finalScore > bestScore;
+    if (isBest) {
         bestScore = finalScore;
         localStorage.setItem('snakeball_best', bestScore.toString());
         document.getElementById('new-best').style.display = '';
@@ -1438,25 +2573,80 @@ function showGameOver() {
         document.getElementById('new-best').style.display = 'none';
         playSound('gameOver');
     }
-
     document.getElementById('best-score-result').textContent = 'BEST: ' + bestScore;
 
-    // Delay showing result screen
+    // ---- Coin reward: collected coins + score bonus ----
+    lastRunBaseCoins = runCoins + Math.floor(finalScore / 10);
+    coinsDoubled = false;
+    if (window.SB) SB.addCoins(lastRunBaseCoins, true);
+    document.getElementById('result-coins-amount').textContent = lastRunBaseCoins;
+
+    // ---- Report run for missions / stats ----
+    if (window.SB) {
+        SB.reportRun({
+            score: finalScore,
+            coins: runCoins,
+            cubes: cubesBrokenThisRun,
+            megas: megasThisRun,
+            revived: revivesUsed,
+            combo: bestComboThisRun,
+            balls: ballCountPeak,
+        });
+        SB.consumeArmed();
+    }
+
+    // Result extra line (best combo / mission hint)
+    const extra = document.getElementById('result-extra');
+    extra.innerHTML = '';
+    const bits = [];
+    if (bestComboThisRun >= 3) bits.push('🔥 Best combo: ' + bestComboThisRun + 'x');
+    if (isBest) bits.push('🏆 New best score!');
+    if (bits.length) {
+        extra.innerHTML = '<div style="color:#8a8aa8;font-size:13px;text-align:center">' + bits.join(' · ') + '</div>';
+    }
+
+    // Double-coins button setup
+    const dbl = document.getElementById('double-coins');
+    dbl.disabled = false;
+    dbl.style.display = (lastRunBaseCoins > 0) ? '' : 'none';
+    dbl.innerHTML = '▶ DOUBLE 🪙 (+' + lastRunBaseCoins + ')';
+
+    // Delay showing result screen (let the throw animation play)
     setTimeout(() => {
         gameUI.style.display = 'none';
         touchAreaEl.style.display = 'none';
         tutorialOverlay.style.display = 'none';
         resultScreen.style.display = 'flex';
+        if (window.SB) SB.updateBadges();
     }, 1500);
+}
+
+async function doubleCoins() {
+    if (coinsDoubled || lastRunBaseCoins <= 0) return;
+    const dbl = document.getElementById('double-coins');
+    dbl.disabled = true;
+    const rewarded = window.SB ? await SB.showRewardedAd() : true;
+    if (!rewarded) { dbl.disabled = false; return; }
+    coinsDoubled = true;
+    if (window.SB) SB.addCoins(lastRunBaseCoins, true);
+    const total = lastRunBaseCoins * 2;
+    document.getElementById('result-coins-amount').textContent = total;
+    dbl.style.display = 'none';
+    if (window.SB) { SB.vibrate('success'); SB.toast('🪙 Doubled! +' + lastRunBaseCoins); }
 }
 
 // Button handlers
 document.getElementById('tap-to-play').addEventListener('click', startGame);
 document.getElementById('play-again').addEventListener('click', startGame);
-document.getElementById('sound-toggle').addEventListener('click', () => {
-    soundEnabled = !soundEnabled;
-    document.getElementById('sound-toggle').textContent = soundEnabled ? '🔊' : '🔇';
-});
+document.getElementById('back-home').addEventListener('click', goHome);
+
+// Revive screen handlers
+document.getElementById('revive-ad').addEventListener('click', () => reviveVia('ad'));
+document.getElementById('revive-gem').addEventListener('click', () => reviveVia('gem'));
+document.getElementById('revive-no').addEventListener('click', () => declineRevive());
+
+// Double-coins (rewarded ad) on result
+document.getElementById('double-coins').addEventListener('click', doubleCoins);
 
 updateBestScoreDisplay();
 
@@ -1552,6 +2742,98 @@ function applyRoadCurve() {
         item.mesh.position.y = item.originalPos.y + curveY * bend;
     }
 }
+
+// ============================================================
+// COIN UPDATE (spin + road curve + magnet attraction + pickup)
+// ============================================================
+const MAGNET_RANGE = 6.0;
+function updateCoins(dt) {
+    const ballZ = playerWorldZ;
+    const ballPos = mainBallGroup.position;
+    for (const c of coinItems) {
+        if (!c.active) continue;
+        c.spin += dt * 6;
+        c.mesh.rotation.z = c.spin;
+
+        const dz = c.originalPos.z - ballZ;
+        // Magnet: once ahead and within range, fly the coin to the ball.
+        if (magnetActive && dz < MAGNET_RANGE && dz > -2) {
+            c.mesh.position.x += (ballPos.x - c.mesh.position.x) * Math.min(1, dt * 10);
+            c.mesh.position.y += (ballPos.y - c.mesh.position.y) * Math.min(1, dt * 10);
+            c.mesh.position.z += (ballPos.z - c.mesh.position.z) * Math.min(1, dt * 8);
+        } else {
+            const bend = getCurveBend(dz);
+            c.mesh.position.x = c.originalPos.x + curveX * bend;
+            c.mesh.position.y = c.originalPos.y + curveY * bend;
+            c.mesh.position.z = c.originalPos.z;
+        }
+
+        // Pickup
+        if (ballPos.distanceTo(c.mesh.position) < 0.55) {
+            c.active = false;
+            c.mesh.visible = false;
+            collectCoin(1);
+        }
+    }
+}
+
+function collectCoin(n) {
+    runCoins += n;
+    if (document.getElementById('run-coins-amount'))
+        document.getElementById('run-coins-amount').textContent = runCoins;
+    playSound('getItem');
+}
+
+// ============================================================
+// COMBO SYSTEM (multiplies break score; higher score → bigger
+// end-of-run coin payout, so combos pay off both ways)
+// ============================================================
+const comboDisplay = () => document.getElementById('combo-display');
+function comboMultiplier() { return 1 + Math.floor(combo / 5) * 0.5; } // x1, x1.5 @5, x2 @10, ...
+function addCombo() {
+    combo++;
+    comboTimer = COMBO_TIMEOUT;
+    if (combo > bestComboThisRun) bestComboThisRun = combo;
+    const el = comboDisplay();
+    if (el) {
+        if (combo >= 3) {
+            el.style.display = 'block';
+            el.innerHTML = combo + '<span class="mult"> COMBO  x' + comboMultiplier().toFixed(1) + '</span>';
+            el.style.transform = 'translateX(-50%) scale(1.25)';
+            requestAnimationFrame(() => { el.style.transition = 'transform 0.18s'; el.style.transform = 'translateX(-50%) scale(1)'; });
+        }
+    }
+}
+function resetCombo() {
+    combo = 0; comboTimer = 0;
+    const el = comboDisplay();
+    if (el) el.style.display = 'none';
+}
+
+// ============================================================
+// SKIN APPLICATION (called by SB on equip / at run start)
+// ============================================================
+let skinIsRainbow = false;
+function applyActiveSkin() {
+    if (!window.SB) return;
+    const s = SB.activeSkin();
+    skinIsRainbow = !!s.rainbow;
+    const m = mainBallMesh.material;
+    m.color.setHex(s.color);
+    m.emissive.setHex(s.emissive);
+    m.emissiveIntensity = s.ei;
+    m.metalness = s.metal;
+    m.roughness = s.rough;
+    // tint the following balls too
+    for (const fb of followingBalls) {
+        fb.mesh.material.color.setHex(s.color);
+        fb.mesh.material.emissive.setHex(s.emissive);
+        fb.mesh.material.emissiveIntensity = s.ei * 0.7;
+        fb.mesh.material.metalness = s.metal;
+        fb.mesh.material.roughness = s.rough;
+    }
+}
+window.__applySkin = applyActiveSkin;
 
 // ============================================================
 // MAIN UPDATE LOOP
@@ -1682,6 +2964,34 @@ function update() {
 
         // Move following balls
         moveFollowingBalls(dt);
+
+        // Coins (spin / magnet / pickup)
+        if (gameState === 'playing') updateCoins(dt);
+
+        // Invulnerability + combo decay
+        if (invulnTimer > 0) {
+            invulnTimer -= dt;
+            const baseEi = window.SB ? SB.activeSkin().ei : 0.2;
+            if (invulnTimer > 0) {
+                // pulse the ball while invulnerable
+                const f = Math.floor(invulnTimer * 12) % 2;
+                mainBallMesh.material.emissiveIntensity = f ? 0.9 : baseEi;
+            } else {
+                // restore base glow when the grace window ends
+                mainBallMesh.material.emissiveIntensity = baseEi;
+            }
+        }
+        if (combo > 0) {
+            comboTimer -= dt;
+            if (comboTimer <= 0) resetCombo();
+        }
+
+        // Rainbow skin hue cycle (skip while flickering / invulnerable so those effects win)
+        if (skinIsRainbow && flickerTimer <= 0 && invulnTimer <= 0) {
+            const t = (Date.now() % 2000) / 2000;
+            mainBallMesh.material.color.setHSL(t, 0.9, 0.55);
+            mainBallMesh.material.emissive.setHSL(t, 0.9, 0.4);
+        }
 
         // Rotate main ball faster with speed
         mainBallMesh.rotation.x += velocity.z * dt * 3;
