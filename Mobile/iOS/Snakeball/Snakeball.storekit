@@ -1,0 +1,78 @@
+{
+  "identifier" : "SNAKEBALL_STOREKIT",
+  "nonRenewingSubscriptions" : [],
+  "products" : [
+    {
+      "displayPrice" : "0.99",
+      "familyShareable" : false,
+      "internalID" : "1000000001",
+      "localizations" : [
+        { "description" : "5,000 coins", "displayName" : "Pouch of Coins", "locale" : "en_US" }
+      ],
+      "productID" : "coins_small",
+      "referenceName" : "Pouch of Coins",
+      "type" : "Consumable"
+    },
+    {
+      "displayPrice" : "4.99",
+      "familyShareable" : false,
+      "internalID" : "1000000002",
+      "localizations" : [
+        { "description" : "30,000 coins", "displayName" : "Chest of Coins", "locale" : "en_US" }
+      ],
+      "productID" : "coins_big",
+      "referenceName" : "Chest of Coins",
+      "type" : "Consumable"
+    },
+    {
+      "displayPrice" : "2.99",
+      "familyShareable" : false,
+      "internalID" : "1000000003",
+      "localizations" : [
+        { "description" : "50 gems", "displayName" : "Handful of Gems", "locale" : "en_US" }
+      ],
+      "productID" : "gems_small",
+      "referenceName" : "Handful of Gems",
+      "type" : "Consumable"
+    },
+    {
+      "displayPrice" : "9.99",
+      "familyShareable" : false,
+      "internalID" : "1000000004",
+      "localizations" : [
+        { "description" : "200 gems", "displayName" : "Bag of Gems", "locale" : "en_US" }
+      ],
+      "productID" : "gems_big",
+      "referenceName" : "Bag of Gems",
+      "type" : "Consumable"
+    },
+    {
+      "displayPrice" : "3.99",
+      "familyShareable" : false,
+      "internalID" : "1000000005",
+      "localizations" : [
+        { "description" : "Remove interstitial ads forever", "displayName" : "Remove Ads", "locale" : "en_US" }
+      ],
+      "productID" : "remove_ads",
+      "referenceName" : "Remove Ads",
+      "type" : "NonConsumable"
+    },
+    {
+      "displayPrice" : "4.99",
+      "familyShareable" : false,
+      "internalID" : "1000000006",
+      "localizations" : [
+        { "description" : "10,000 coins, 50 gems, Gold skin, no ads", "displayName" : "Starter Pack", "locale" : "en_US" }
+      ],
+      "productID" : "starter_pack",
+      "referenceName" : "Starter Pack",
+      "type" : "NonConsumable"
+    }
+  ],
+  "settings" : {
+    "_failTransactionsEnabled" : false,
+    "_storeKitErrors" : []
+  },
+  "subscriptionGroups" : [],
+  "version" : { "major" : 3, "minor" : 0 }
+}

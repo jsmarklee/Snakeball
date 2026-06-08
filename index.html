@@ -609,7 +609,16 @@ function showRewardedAd() {
     }
     // iOS / Android native
     return new Promise((resolve) => {
+        // Safety timeout: if a native ad delegate never fires (SDK edge case),
+        // don't soft-lock the revive / double-coins flow — resolve as not-rewarded.
+        const t = setTimeout(() => {
+            if (bridgeCallbacks['adReward']) {
+                delete bridgeCallbacks['adReward'];
+                resolve(false);
+            }
+        }, 45000);
         bridgeCallbacks['adReward'] = (data) => {
+            clearTimeout(t);
             delete bridgeCallbacks['adReward'];
             resolve(!!data?.success);
         };
@@ -649,8 +658,44 @@ async function purchase(productId) {
 }
 function restorePurchases() {
     if (platform === 'web') { toast('Nothing to restore'); return; }
+    if (platform === 'toss') { toast('Restore not needed on Toss'); return; }
+    bridgeCallbacks['iapRestore'] = (data) => {
+        delete bridgeCallbacks['iapRestore'];
+        if (data && data.success && Array.isArray(data.productIds)) {
+            data.productIds.forEach((pid) => {
+                const p = STORE.find((x) => x.id === pid);
+                if (p) grant(p.grant);
+            });
+            refreshHUD();
+            toast(data.productIds.length ? 'Purchases restored' : 'Nothing to restore');
+        } else {
+            toast('Restore failed');
+        }
+    };
     postNative('iapHandler', 'restorePurchases');
     toast('Restoring…');
+}
+
+// Forced interstitial ad (native iOS/Android). Resolves when the ad closes (or
+// immediately if the player owns Remove Ads / is on web/Toss). Used between runs.
+function showInterstitial() {
+    if (state.removeAds || platform === 'web' || platform === 'toss') return Promise.resolve();
+    return new Promise((resolve) => {
+        let done = false;
+        const finish = () => { if (done) return; done = true; delete bridgeCallbacks['interstitialClosed']; resolve(); };
+        bridgeCallbacks['interstitialClosed'] = finish;
+        setTimeout(finish, 8000); // safety: never block the game if native goes quiet
+        postNative('adHandler', 'showInterstitial');
+    });
+}
+
+// Show an interstitial roughly every 3rd replay (skipped for Remove Ads owners).
+let replaysSinceAd = 0;
+function maybeInterstitial() {
+    replaysSinceAd++;
+    if (state.removeAds) return Promise.resolve();
+    if (replaysSinceAd >= 3) { replaysSinceAd = 0; return showInterstitial(); }
+    return Promise.resolve();
 }
 function grant(g) {
     if (!g) return;
@@ -1035,6 +1080,8 @@ window.SB = {
     platform,
     state,
     showRewardedAd,
+    showInterstitial,
+    maybeInterstitial,
     vibrate,
     addCoins, addGems, spendGems, spendCoins,
     activeSkin,
@@ -2637,7 +2684,11 @@ async function doubleCoins() {
 
 // Button handlers
 document.getElementById('tap-to-play').addEventListener('click', startGame);
-document.getElementById('play-again').addEventListener('click', startGame);
+document.getElementById('play-again').addEventListener('click', async () => {
+    // Forced interstitial between some runs (skipped for Remove Ads owners).
+    if (window.SB) await SB.maybeInterstitial();
+    startGame();
+});
 document.getElementById('back-home').addEventListener('click', goHome);
 
 // Revive screen handlers

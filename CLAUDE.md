@@ -121,9 +121,22 @@ npm run toss:build                  # ait build (bundles SDK into lazy chunk)
 npm run toss:deploy                 # ait deploy (needs `ait token add` first)
 ```
 
-> Native iOS/Android shells live in MinefieldSweeper's `Mobile/` — clone those,
-> point the WebView at the Snakeball hosting URL, and implement the bridge
-> contract above. Portrait-only, disable scroll bounce, edge-to-edge.
+### iOS app (built — `Mobile/iOS/`)
+A SwiftUI + WKWebView wrapper, generated from `Mobile/iOS/project.yml` via XcodeGen.
+Implements the full bridge contract: haptics, AdMob rewarded **and** interstitial,
+StoreKit 2 IAP (SKUs match `STORE`), restore, and `getDeviceId`. Loads the hosting
+URL, so deploying the web build updates the game without an App Store review.
+Verified: `xcodebuild` BUILD SUCCEEDED and the app boots in the simulator (the
+WebView loads the URL over HTTPS). See `Mobile/iOS/README.md` for build/run and the
+pre-launch checklist (deploy web, real AdMob ids, App Store Connect IAP, signing, icon).
+
+```bash
+brew install xcodegen && cd Mobile/iOS && xcodegen generate && open Snakeball.xcodeproj
+```
+
+> **Android** is not built yet — clone MinefieldSweeper's `Mobile/Android` Kotlin
+> WebView shell, point it at the Snakeball hosting URL, and implement the same
+> bridge contract. Portrait-only, disable scroll bounce, edge-to-edge.
 
 ## WORKFLOW RULES
 - After changing `index.html`, run `npm run sync:public` (or `deploy:web`) so the

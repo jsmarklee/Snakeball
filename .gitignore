@@ -7,3 +7,10 @@ node_modules/
 dist/
 *.ait
 .granite/
+
+# iOS / Xcode
+Mobile/iOS/**/xcuserdata/
+Mobile/iOS/**/*.xcuserstate
+Mobile/iOS/build/
+Mobile/iOS/DerivedData/
+Mobile/iOS/.build/
