@@ -7,7 +7,7 @@ export default defineConfig({
     primaryColor: '#63f8cf',
     // Toss requires an absolute, publicly-reachable icon URL. Replace with the
     // hosted app icon once the Firebase Hosting site is live.
-    icon: 'https://snakeball.web.app/app-icon.png',
+    icon: 'https://snakeball-game.web.app/app-icon.png',
   },
   web: {
     // The Toss sandbox app on the phone resolves this host string verbatim, so

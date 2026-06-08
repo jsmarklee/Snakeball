@@ -11,7 +11,7 @@ Mobile/iOS/
   Snakeball.xcodeproj             # generated — run `xcodegen generate` to recreate
   Snakeball/
     SnakeballApp.swift            # @main, AdMob init
-    ContentView.swift             # WebView(url: https://snakeball.web.app)
+    ContentView.swift             # WebView(url: https://snakeball-game.web.app)
     WebView.swift                 # JS↔native bridge + RewardedAdManager + InterstitialAdManager
     StoreKitManager.swift         # StoreKit 2 (SKUs match index.html STORE)
     Info.plist                    # GADApplicationIdentifier, SKAdNetwork, ATS, portrait
@@ -43,7 +43,7 @@ xcodebuild build -project Snakeball.xcodeproj -scheme Snakeball \
 
 ## Before shipping to the App Store — required edits
 1. **Deploy the web game** so the WebView has something to load. The app points at
-   `https://snakeball.web.app` (`ContentView.swift`). From the repo root run
+   `https://snakeball-game.web.app` (`ContentView.swift`). From the repo root run
    `npm run deploy:web`. Confirmed working: the WebView already loads that URL over
    HTTPS — it currently shows Firebase "Site Not Found" only because hosting isn't
    deployed yet. If your hosting domain differs, update the URL in `ContentView.swift`

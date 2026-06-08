@@ -6,7 +6,7 @@ struct ContentView: View {
             Color.black.ignoresSafeArea()
             // Loads the production web build. Deploy with `npm run deploy:web`,
             // then game updates ship without an App Store review.
-            WebView(url: URL(string: "https://snakeball.web.app?v=1")!)
+            WebView(url: URL(string: "https://snakeball-game.web.app?v=1")!)
                 .ignoresSafeArea()
         }
         .statusBarHidden(true)
