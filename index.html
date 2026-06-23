@@ -484,7 +484,6 @@ canvas { display: block; width: 100%; height: 100%; }
             <div class="sub" id="settings-platform"></div>
             <div class="setting-row">Sound<div class="toggle on" id="set-sound"></div></div>
             <div class="setting-row">Haptics<div class="toggle on" id="set-haptics"></div></div>
-            <div class="setting-row" id="set-restore-row" style="cursor:pointer">Restore Purchases<span style="color:var(--mint);font-size:13px">↺</span></div>
             <div class="setting-row" id="set-reset-row" style="cursor:pointer;border-bottom:none">Reset Progress<span style="color:#ff6b6b;font-size:13px">⟲</span></div>
         </div>
     </div>
@@ -551,8 +550,6 @@ const STORE = [
     { id:'coins_big',   kind:'iap', title:'Chest of Coins',  grant:{coins:30000}, price:'$4.99', em:'🪙', best:'+20% bonus' },
     { id:'gems_small',  kind:'iap', title:'Handful of Gems', grant:{gems:50},     price:'$2.99', em:'💎' },
     { id:'gems_big',    kind:'iap', title:'Bag of Gems',     grant:{gems:200},    price:'$9.99', em:'💎', best:'+25% bonus' },
-    { id:'remove_ads',  kind:'iap', title:'Remove Forced Ads', grant:{removeAds:true}, price:'$3.99', em:'🚫', noncon:true },
-    { id:'starter_pack',kind:'iap', title:'Starter Pack',    grant:{coins:10000,gems:50,skin:'gold',removeAds:true}, price:'$4.99', em:'⭐', noncon:true, best:'BEST VALUE' },
 ];
 
 const MISSION_POOL = [
@@ -712,52 +709,12 @@ async function purchase(productId) {
         postNative('iapHandler', 'purchase', { productId });
     });
 }
-function restorePurchases() {
-    if (platform === 'web') { toast('Nothing to restore'); return; }
-    if (platform === 'toss') { toast('Restore not needed on Toss'); return; }
-    bridgeCallbacks['iapRestore'] = (data) => {
-        delete bridgeCallbacks['iapRestore'];
-        if (data && data.success && Array.isArray(data.productIds)) {
-            data.productIds.forEach((pid) => {
-                const p = STORE.find((x) => x.id === pid);
-                if (p) grant(p.grant);
-            });
-            refreshHUD();
-            toast(data.productIds.length ? 'Purchases restored' : 'Nothing to restore');
-        } else {
-            toast('Restore failed');
-        }
-    };
-    postNative('iapHandler', 'restorePurchases');
-    toast('Restoring…');
-}
 
-// Forced interstitial ad (native iOS/Android). Resolves when the ad closes (or
-// immediately if the player owns Remove Ads / is on web/Toss). Used between runs.
-function showInterstitial() {
-    if (state.removeAds || platform === 'web' || platform === 'toss') return Promise.resolve();
-    return new Promise((resolve) => {
-        let done = false;
-        const finish = () => { if (done) return; done = true; delete bridgeCallbacks['interstitialClosed']; resolve(); };
-        bridgeCallbacks['interstitialClosed'] = finish;
-        setTimeout(finish, 8000); // safety: never block the game if native goes quiet
-        postNative('adHandler', 'showInterstitial');
-    });
-}
-
-// Show an interstitial roughly every 3rd replay (skipped for Remove Ads owners).
-let replaysSinceAd = 0;
-function maybeInterstitial() {
-    replaysSinceAd++;
-    if (state.removeAds) return Promise.resolve();
-    if (replaysSinceAd >= 3) { replaysSinceAd = 0; return showInterstitial(); }
-    return Promise.resolve();
-}
+// No forced ads in this game — only opt-in rewarded ads (revive / double coins).
 function grant(g) {
     if (!g) return;
     if (g.coins) addCoins(g.coins, true);
     if (g.gems) addGems(g.gems, true);
-    if (g.removeAds) state.removeAds = true;
     if (g.skin && !state.owned.includes(g.skin)) state.owned.push(g.skin);
     persist();
 }
@@ -996,10 +953,9 @@ function renderShop() {
             const grantTxt = [
                 p.grant.coins ? '🪙 ' + p.grant.coins.toLocaleString() : '',
                 p.grant.gems ? '💎 ' + p.grant.gems : '',
-                p.grant.removeAds ? '🚫 No forced ads' : '',
                 p.grant.skin ? '🎨 ' + p.grant.skin + ' skin' : '',
             ].filter(Boolean).join('  ');
-            const isOwnedNoncon = p.noncon && p.id === 'remove_ads' && state.removeAds;
+            const isOwnedNoncon = false;   // no non-consumable IAPs anymore (coins/gems only)
             card.innerHTML =
                 `<div style="font-size:32px">${p.em}</div>` +
                 `<div style="flex:1"><div class="name">${p.title} ${p.best?`<span style="color:var(--gold);font-size:10px">${p.best}</span>`:''}</div>` +
@@ -1122,7 +1078,6 @@ function wire() {
     };
     $('set-sound').onclick = () => { state.settings.sound = !state.settings.sound; persist(); renderSettings(); if (window.__setSound) window.__setSound(state.settings.sound); };
     $('set-haptics').onclick = () => { state.settings.haptics = !state.settings.haptics; persist(); renderSettings(); };
-    $('set-restore-row').onclick = restorePurchases;
     $('set-reset-row').onclick = () => {
         if (confirm('Reset ALL progress, coins, gems and unlocks? This cannot be undone.')) {
             ['sb_coins','sb_gems','sb_skin','sb_owned','sb_removeads','sb_powerups','sb_armed','sb_daily','sb_missions','sb_stats'].forEach(k => LS.removeItem(k));
@@ -1145,8 +1100,6 @@ window.SB = {
     platform,
     state,
     showRewardedAd,
-    showInterstitial,
-    maybeInterstitial,
     vibrate,
     addCoins, addGems, spendGems, spendCoins,
     activeSkin,
@@ -2831,11 +2784,7 @@ async function doubleCoins() {
 
 // Button handlers
 document.getElementById('tap-to-play').addEventListener('click', startGame);
-document.getElementById('play-again').addEventListener('click', async () => {
-    // Forced interstitial between some runs (skipped for Remove Ads owners).
-    if (window.SB) await SB.maybeInterstitial();
-    startGame();
-});
+document.getElementById('play-again').addEventListener('click', startGame);
 document.getElementById('back-home').addEventListener('click', goHome);
 
 // Revive screen handlers
