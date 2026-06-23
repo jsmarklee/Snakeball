@@ -351,11 +351,12 @@ canvas { display: block; width: 100%; height: 100%; }
 /* Pause button (top-right during play) + pause overlay */
 #pause-btn {
     position: absolute; top: max(14px, env(safe-area-inset-top)); left: 16px;
-    width: 44px; height: 44px; border-radius: 12px;
-    background: rgba(20,20,40,0.55); border: 1px solid rgba(255,255,255,0.18);
-    color: #fff; font-size: 17px; line-height: 1;
+    width: 50px; height: 50px; border-radius: 14px;
+    background: rgba(20,20,40,0.78); border: 1.5px solid rgba(255,255,255,0.35);
+    color: #fff; font-size: 19px; line-height: 1;
     display: none; align-items: center; justify-content: center;
-    cursor: pointer; -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px);
+    cursor: pointer; box-shadow: 0 2px 10px rgba(0,0,0,0.45);
+    -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px);
 }
 #pause-btn:active { transform: scale(0.94); }
 #pause-screen {
@@ -439,7 +440,7 @@ canvas { display: block; width: 100%; height: 100%; }
     <div id="pause-screen">
         <h2>PAUSED</h2>
         <button class="big-btn" id="pause-resume" style="max-width:340px">▶  RESUME</button>
-        <button class="big-btn ghost" id="pause-quit" style="max-width:340px;margin-top:10px">END RUN</button>
+        <button class="big-btn ghost" id="pause-quit" style="max-width:340px;margin-top:10px">🏠  QUIT TO MENU</button>
     </div>
 
     <!-- Modals -->
@@ -2569,17 +2570,30 @@ function resumeGame() {
     gameState = 'playing';
     if (soundEnabled && audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
 }
-function endRunFromPause() {
+function quitToMenu() {
     if (gameState !== 'paused') return;
     pauseScreen.style.display = 'none';
     pauseBtn.style.display = 'none';
     if (soundEnabled && audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
-    // End gracefully so coins/score earned this run still count (shows result screen).
-    finalizeGameOver();
+    // Credit the coins/score earned this run (so quitting isn't punished) and report
+    // it for missions/stats, then go straight to the menu — no result screen.
+    const finalScore = score + Math.floor(gameTimer);
+    const earned = runCoins + Math.floor(finalScore / 10);
+    if (window.SB) {
+        SB.addCoins(earned, true);
+        SB.reportRun({
+            score: finalScore, coins: runCoins, cubes: cubesBrokenThisRun,
+            megas: megasThisRun, revived: revivesUsed, combo: bestComboThisRun, balls: ballCountPeak,
+        });
+        SB.consumeArmed();
+        if (earned > 0) SB.toast('🪙 +' + earned + ' earned');
+    }
+    if (finalScore > bestScore) { bestScore = finalScore; localStorage.setItem('snakeball_best', bestScore.toString()); }
+    goHome();
 }
 pauseBtn.addEventListener('click', pauseGame);
 pauseScreen.querySelector('#pause-resume').addEventListener('click', resumeGame);
-pauseScreen.querySelector('#pause-quit').addEventListener('click', endRunFromPause);
+pauseScreen.querySelector('#pause-quit').addEventListener('click', quitToMenu);
 
 const megaTimerWrap = document.getElementById('mega-timer-wrap');
 const megaTimerBar = document.getElementById('mega-timer-bar');
