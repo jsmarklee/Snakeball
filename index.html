@@ -1078,8 +1078,10 @@ function renderDaily() {
     }
     const btn = $('daily-claim');
     if (btn) {
-        btn.disabled = !dailyAvailable();
-        btn.textContent = dailyAvailable() ? 'CLAIM TODAY' : 'COME BACK TOMORROW';
+        const avail = dailyAvailable();
+        btn.disabled = false;                       // when already claimed, the button dismisses the modal
+        btn.classList.toggle('ghost', !avail);      // show it as a subtle "dismiss" once claimed
+        btn.textContent = avail ? 'CLAIM TODAY' : 'COME BACK TOMORROW';
     }
 }
 
@@ -1114,7 +1116,10 @@ function wire() {
     document.querySelectorAll('.modal-backdrop').forEach(bd =>
         bd.onclick = (e) => { if (e.target === bd) bd.classList.remove('open'); });
 
-    $('daily-claim').onclick = claimDaily;
+    $('daily-claim').onclick = () => {
+        if (dailyAvailable()) claimDaily();
+        else $('daily-modal').classList.remove('open');   // already claimed → just close
+    };
     $('set-sound').onclick = () => { state.settings.sound = !state.settings.sound; persist(); renderSettings(); if (window.__setSound) window.__setSound(state.settings.sound); };
     $('set-haptics').onclick = () => { state.settings.haptics = !state.settings.haptics; persist(); renderSettings(); };
     $('set-restore-row').onclick = restorePurchases;
