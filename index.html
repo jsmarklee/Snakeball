@@ -1432,16 +1432,16 @@ function updateBallCountSprite() {
 // Following balls
 const followingBalls = [];
 const TAU = Math.PI * 2;
+const WORLD_X = new THREE.Vector3(1, 0, 0);   // real forward-roll axis, shared by all balls
 for (let i = 0; i < 30; i++) {
     const mesh = new THREE.Mesh(smallBallGeometry, ballMaterial.clone());
     mesh.castShadow = true;
     mesh.visible = false;
-    // Random start orientation + a roll axis (mostly forward, slightly tilted) and
-    // speed per ball, so the trail reads as distinct balls, not one aligned tube.
+    // Random START orientation only — so each ball shows a different facet and the
+    // trail isn't one aligned stripe. They all still roll forward (world X) below.
     mesh.rotation.set(Math.random() * TAU, Math.random() * TAU, Math.random() * TAU);
     scene.add(mesh);
-    const rollAxis = new THREE.Vector3(1, (Math.random() - 0.5) * 0.6, (Math.random() - 0.5) * 0.6).normalize();
-    followingBalls.push({ mesh, active: false, rollAxis, rollSpeed: 2.4 + Math.random() * 1.8 });
+    followingBalls.push({ mesh, active: false, rollSpeed: 3.4 + Math.random() * 1.2 });
 }
 
 // Continuous road mesh with subdivisions for smooth curves
@@ -3300,13 +3300,13 @@ function update() {
         // Per-skin special effects (disco flash + light + beat, eyeball red glow)
         updateSkinFx(dt);
 
-        // Rotate main ball faster with speed
-        mainBallMesh.rotation.x += velocity.z * dt * 3;
+        // Roll forward around the WORLD X axis. Each ball starts at a random
+        // orientation (so they look distinct, no aligned stripe) but they all roll
+        // in the true forward direction — not random tumbling.
+        mainBallMesh.rotateOnWorldAxis(WORLD_X, velocity.z * dt * 3);
         megaBallMesh.rotation.x += velocity.z * dt * 3;
-        // Each trailing ball rolls on its own slightly-random axis → looks like a
-        // pile of distinct balls instead of one aligned striped tube.
         for (const fb of followingBalls) {
-            if (fb.active) fb.mesh.rotateOnAxis(fb.rollAxis, velocity.z * dt * fb.rollSpeed);
+            if (fb.active) fb.mesh.rotateOnWorldAxis(WORLD_X, velocity.z * dt * fb.rollSpeed);
         }
 
         // Update road curve
