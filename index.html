@@ -1431,12 +1431,17 @@ function updateBallCountSprite() {
 
 // Following balls
 const followingBalls = [];
+const TAU = Math.PI * 2;
 for (let i = 0; i < 30; i++) {
     const mesh = new THREE.Mesh(smallBallGeometry, ballMaterial.clone());
     mesh.castShadow = true;
     mesh.visible = false;
+    // Random start orientation + a roll axis (mostly forward, slightly tilted) and
+    // speed per ball, so the trail reads as distinct balls, not one aligned tube.
+    mesh.rotation.set(Math.random() * TAU, Math.random() * TAU, Math.random() * TAU);
     scene.add(mesh);
-    followingBalls.push({ mesh, active: false });
+    const rollAxis = new THREE.Vector3(1, (Math.random() - 0.5) * 0.6, (Math.random() - 0.5) * 0.6).normalize();
+    followingBalls.push({ mesh, active: false, rollAxis, rollSpeed: 2.4 + Math.random() * 1.8 });
 }
 
 // Continuous road mesh with subdivisions for smooth curves
@@ -2672,6 +2677,7 @@ function resetGameState() {
     mainBallMesh.visible = true;
     megaBallMesh.visible = false;
     mainBallMesh.material.color.set(0xffffff);
+    mainBallMesh.rotation.set(0, Math.random() * TAU, Math.random() * TAU);
     applyActiveSkin();
     updateBallCountSprite();
 
@@ -3297,6 +3303,11 @@ function update() {
         // Rotate main ball faster with speed
         mainBallMesh.rotation.x += velocity.z * dt * 3;
         megaBallMesh.rotation.x += velocity.z * dt * 3;
+        // Each trailing ball rolls on its own slightly-random axis → looks like a
+        // pile of distinct balls instead of one aligned striped tube.
+        for (const fb of followingBalls) {
+            if (fb.active) fb.mesh.rotateOnAxis(fb.rollAxis, velocity.z * dt * fb.rollSpeed);
+        }
 
         // Update road curve
         if (gameState === 'playing') {
