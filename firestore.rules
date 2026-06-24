@@ -1,0 +1,43 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Leaderboard: 클라이언트는 읽기만 (top-N 직접 쿼리). 쓰기는 Cloud Function(Admin SDK)만.
+    // leaderboard_global, leaderboard_weekly_{YYYYWW} 등 leaderboard_ 로 시작하는 모든 컬렉션.
+    match /{col}/{doc} {
+      allow read: if col.matches('^leaderboard_.*$');
+      allow write: if false; // 클라이언트 직접 쓰기 차단 — submitScore/setName 함수 사용
+    }
+
+    // 게임 세션 (안티치트 앵커): 함수 전용. 클라이언트 접근 전면 차단.
+    match /game_sessions/{token} {
+      allow read, write: if false;
+    }
+
+    // 서버 전용 config: 클라이언트 접근 없음.
+    match /config/{docId} {
+      allow read, write: if false;
+    }
+
+    // 유저 데이터: 본인만 읽기. 화이트리스트 필드만 생성/수정 가능.
+    // (서버는 Admin SDK라 룰을 우회하므로 bestScore/name 서버 갱신은 영향 없음.)
+    match /users/{uid} {
+      allow read: if request.auth != null && request.auth.uid == uid;
+
+      allow create: if request.auth != null
+        && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly([
+          'name', 'bestScore', 'stableId', 'createdAt', 'lastSeenAt'
+        ]);
+
+      allow update: if request.auth != null
+        && request.auth.uid == uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'name', 'bestScore', 'stableId', 'createdAt', 'lastSeenAt'
+        ]);
+
+      // 삭제 차단.
+      allow delete: if false;
+    }
+  }
+}
