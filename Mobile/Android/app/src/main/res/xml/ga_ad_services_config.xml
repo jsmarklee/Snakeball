@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ad-services-config>
+    <!-- AdMob -->
+    <custom-audience-allow-list>
+        <concept>
+            <identifier>1</identifier> <!-- Allow ad tech IDs, 1 means true/all -->
+        </concept>
+    </custom-audience-allow-list>
+
+    <protected-app-signals-allow-list>
+        <concept>
+            <identifier>1</identifier>
+        </concept>
+    </protected-app-signals-allow-list>
+</ad-services-config>

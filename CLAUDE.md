@@ -134,9 +134,21 @@ pre-launch checklist (deploy web, real AdMob ids, App Store Connect IAP, signing
 brew install xcodegen && cd Mobile/iOS && xcodegen generate && open Snakeball.xcodeproj
 ```
 
-> **Android** is not built yet — clone MinefieldSweeper's `Mobile/Android` Kotlin
-> WebView shell, point it at the Snakeball hosting URL, and implement the same
-> bridge contract. Portrait-only, disable scroll bounce, edge-to-edge.
+### Android app (built — `Mobile/Android/`)
+A Kotlin + WebView wrapper (package `studio.hodgepodge.snakeball`), ported from
+MinefieldSweeper's shell and trimmed for Snakeball (no Play Games / Firebase /
+PostHog — Snakeball has no backend). Loads the hosting URL; portrait-only, dark
+bg, edge-to-edge. Implements the bridge as `window.AndroidBridge` with exactly
+four `@JavascriptInterface` methods: `vibrate`, `showRewardedAd` (AdMob rewarded),
+`purchase` (Play Billing, consumables only), `getDeviceId` (ANDROID_ID). No
+interstitial/restore (the game dropped them). SKUs match `STORE` (coins/gems).
+AdMob ids are Google **test** ids (placeholders). See `Mobile/Android/README.md`
+for the pre-launch checklist (real AdMob ids, Play Console IAP, signing keystore,
+**replace placeholder launcher icon** — currently MinefieldSweeper's).
+
+```bash
+cd Mobile/Android && ./gradlew assembleDebug   # needs Android SDK
+```
 
 ## WORKFLOW RULES
 - After changing `index.html`, run `npm run sync:public` (or `deploy:web`) so the
