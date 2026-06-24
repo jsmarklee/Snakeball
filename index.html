@@ -327,6 +327,45 @@ canvas { display: block; width: 100%; height: 100%; }
 .toggle::after { content:''; position:absolute; top:3px; left:3px; width:22px; height:22px; border-radius:50%; background:#fff; transition: left 0.2s; }
 .toggle.on::after { left: 25px; }
 
+/* ============ LEADERBOARD ============ */
+.lb-name-row { display: flex; gap: 8px; margin-bottom: 14px; align-items: center; }
+.lb-name-row input {
+    flex: 1; padding: 11px 14px; border-radius: 12px; font-size: 15px;
+    background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.18);
+    color: #fff; outline: none;
+}
+.lb-name-row input:focus { border-color: var(--mint); }
+.lb-name-row button {
+    padding: 11px 18px; border-radius: 12px; border: none; cursor: pointer;
+    font-size: 14px; font-weight: 800; color: #06121a;
+    background: linear-gradient(135deg, var(--mint), #4ad585);
+}
+.lb-you {
+    display: flex; justify-content: space-between; align-items: center;
+    background: rgba(99,248,207,0.08); border: 1px solid rgba(99,248,207,0.25);
+    border-radius: 12px; padding: 10px 14px; margin-bottom: 14px;
+    color: #fff; font-size: 14px; font-weight: 700;
+}
+.lb-you .lb-edit { color: var(--mint); font-size: 12px; font-weight: 700; cursor: pointer; }
+.lb-list { max-height: 52vh; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+.lb-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 12px; border-radius: 12px; margin-bottom: 6px;
+    background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08);
+}
+.lb-row.me { background: rgba(99,248,207,0.13); border-color: var(--mint); }
+.lb-row .lb-rank { width: 34px; text-align: center; color: #8a8aa8; font-size: 14px; font-weight: 800; flex-shrink: 0; }
+.lb-row.top1 .lb-rank { color: var(--gold); }
+.lb-row.top2 .lb-rank { color: #c0c8d4; }
+.lb-row.top3 .lb-rank { color: #d8924a; }
+.lb-row .lb-pname { flex: 1; color: #fff; font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lb-row .lb-score { color: var(--mint); font-size: 15px; font-weight: 800; flex-shrink: 0; }
+.lb-pinned-divider { text-align: center; color: #555; font-size: 16px; margin: 2px 0 6px; letter-spacing: 4px; }
+.lb-state {
+    text-align: center; color: #8a8aa8; font-size: 14px;
+    padding: 32px 14px; line-height: 1.5;
+}
+
 /* Ambient full-screen sparkle layer — pretty twinkle over the whole screen.
    Above the HUD (z 15) but below modals/toasts; never blocks input. */
 #sparkle-layer { position: fixed; inset: 0; pointer-events: none; z-index: 15; overflow: hidden; }
@@ -385,6 +424,7 @@ canvas { display: block; width: 100%; height: 100%; }
 
         <div id="home-actions">
             <div class="home-btn" id="btn-shop"><span class="em">🛍️</span><span>SHOP</span></div>
+            <div class="home-btn" id="btn-leaderboard"><span class="em">🏆</span><span>RANK</span></div>
             <div class="home-btn" id="btn-missions"><span class="em">🎯</span><span>MISSIONS</span><span class="badge" id="missions-badge" style="display:none">0</span></div>
             <div class="home-btn" id="btn-daily"><span class="em">🎁</span><span>DAILY</span><span class="badge" id="daily-badge" style="display:none">!</span></div>
             <div class="home-btn" id="btn-settings"><span class="em">⚙️</span><span>SETTINGS</span></div>
@@ -482,9 +522,20 @@ canvas { display: block; width: 100%; height: 100%; }
             <button class="modal-close" data-close>✕</button>
             <h2>⚙️ Settings</h2>
             <div class="sub" id="settings-platform"></div>
+            <div class="setting-row" id="set-name-row" style="cursor:pointer">Nickname<span id="set-name-val" style="color:var(--mint);font-size:14px;font-weight:700">Anonymous</span></div>
             <div class="setting-row">Sound<div class="toggle on" id="set-sound"></div></div>
             <div class="setting-row">Haptics<div class="toggle on" id="set-haptics"></div></div>
             <div class="setting-row" id="set-reset-row" style="cursor:pointer;border-bottom:none">Reset Progress<span style="color:#ff6b6b;font-size:13px">⟲</span></div>
+        </div>
+    </div>
+
+    <div class="modal-backdrop" id="leaderboard-modal">
+        <div class="modal">
+            <button class="modal-close" data-close>✕</button>
+            <h2>🏆 Leaderboard</h2>
+            <div class="sub">전 세계 최고 점수 TOP 50</div>
+            <div id="leaderboard-head"></div>
+            <div id="leaderboard-body"></div>
         </div>
     </div>
 
@@ -492,6 +543,18 @@ canvas { display: block; width: 100%; height: 100%; }
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+
+<!-- ============================================================
+     Firebase (compat globals, plain <script> tags — NOT ESM imports).
+     Using window.firebase compat — like THREE — keeps Firebase OUT of the ES
+     module graph, so the granite/vite Toss bundler never touches it. The SB
+     online module below reads window.firebase and degrades gracefully if any
+     of these fail to load (offline / SDK blocked / backend not deployed).
+     ============================================================ -->
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-functions-compat.js"></script>
 
 <!-- ============================================================
      SB: Economy + Cross-Platform Bridge + Store/Missions UI
@@ -581,6 +644,7 @@ const state = {
     daily:    load('sb_daily', { last:'', streak:0 }),
     missions: load('sb_missions', null),
     stats:    load('sb_stats', { games:0, cubes:0, coins:0, megas:0, revives:0, bestRunScore:0, bestCombo:0, bestBalls:0 }),
+    name:     load('sb_name', ''),   // 온라인 리더보드 닉네임 (localStorage 'sb_name')
 };
 function persist() {
     save('sb_coins', state.coins); save('sb_gems', state.gems);
@@ -1045,8 +1109,207 @@ function renderDaily() {
 function renderSettings() {
     const names = { ios:'iOS', android:'Android', toss:'Apps in Toss', web:'Web' };
     if ($('settings-platform')) $('settings-platform').textContent = 'Platform: ' + (names[platform] || platform);
+    if ($('set-name-val')) $('set-name-val').textContent = state.name || 'Anonymous';
     if ($('set-sound')) $('set-sound').classList.toggle('on', state.settings.sound);
     if ($('set-haptics')) $('set-haptics').classList.toggle('on', state.settings.haptics);
+}
+
+// ============================================================
+// ONLINE: Firebase global leaderboard (graceful degradation)
+//
+// 모든 호출은 try/catch + lbAvailable 플래그로 감싼다. SDK 차단/오프라인/
+// 백엔드 미배포/익명 인증 비활성 등 어떤 실패가 와도 게임은 그대로 동작하고
+// 리더보드 기능만 비활성/회색 처리된다. Firebase 는 compat 전역(window.firebase)
+// 으로 로드되므로 ES 모듈 그래프에 들어가지 않는다(Toss 번들러 안전).
+// ============================================================
+const firebaseConfig = {
+    apiKey: "AIzaSyC2s_OCPb7NdEsoSu78ezJUADTNSMrs9Y8",
+    authDomain: "snakeball-game.firebaseapp.com",
+    projectId: "snakeball-game",
+    storageBucket: "snakeball-game.firebasestorage.app",
+    messagingSenderId: "522885379639",
+    appId: "1:522885379639:web:eca196b7a9dd88f4ff71b2"
+};
+const LB_REGION = 'asia-northeast3';
+
+let lbAvailable = false;
+let fbAuth = null, fbDb = null, fbFns = null;
+let myUid = null;
+let sessionToken = null;       // startRun() 으로 발급, submitScore() 후 1회성으로 null
+let myStanding = null;         // { best, rank } — 마지막 제출 결과
+let whenAuthReady;             // Promise<uid|null>
+
+try {
+    if (window.firebase && typeof firebase.initializeApp === 'function') {
+        const fbApp = firebase.initializeApp(firebaseConfig);
+        fbAuth = firebase.auth();
+        fbDb = firebase.firestore();
+        // compat: 리전은 app.functions(region) 으로 지정 (firebase.functions(region) 아님).
+        fbFns = fbApp.functions(LB_REGION);
+        lbAvailable = true;
+    }
+} catch (e) {
+    lbAvailable = false;
+}
+
+// 익명 인증 — 8초 타임아웃으로 절대 매달리지 않는다. 실패하면 uid=null.
+whenAuthReady = new Promise((resolve) => {
+    if (!lbAvailable || !fbAuth) { resolve(null); return; }
+    let settled = false;
+    const done = (uid) => { if (settled) return; settled = true; myUid = uid || null; resolve(myUid); };
+    const timer = setTimeout(() => done(null), 8000);
+    try {
+        fbAuth.onAuthStateChanged((user) => {
+            if (user) { clearTimeout(timer); done(user.uid); }
+        });
+        fbAuth.signInAnonymously().catch(() => { clearTimeout(timer); done(null); });
+    } catch (e) {
+        clearTimeout(timer); done(null);
+    }
+});
+
+// startRun — 게임 시작 시 세션 발급 (fire-and-forget, 에러 무시).
+async function startRun() {
+    sessionToken = null;
+    if (!lbAvailable || !fbFns) return;
+    try {
+        const uid = await whenAuthReady;
+        if (!uid) return;
+        const res = await fbFns.httpsCallable('startRun')();
+        sessionToken = res?.data?.sessionToken || null;
+    } catch (e) { sessionToken = null; }
+}
+
+// submitScore — 1회성 토큰으로 점수 제출. 성공 시 myStanding 저장.
+async function submitScore(score) {
+    if (!lbAvailable || !fbFns || !sessionToken || !Number.isFinite(score)) return;
+    const token = sessionToken;
+    sessionToken = null;        // 1회성 — 즉시 비워 중복 제출 방지
+    try {
+        const res = await fbFns.httpsCallable('submitScore')({
+            sessionToken: token,
+            score: Math.round(score),
+            name: state.name || undefined,
+        });
+        if (res?.data) myStanding = { best: res.data.best, rank: res.data.rank };
+    } catch (e) { /* 백엔드 미배포/오프라인 등 — 조용히 무시 */ }
+}
+
+// fetchLeaderboard — 글로벌 top-N. 실패 시 [] 반환.
+async function fetchLeaderboard(n = 50) {
+    if (!lbAvailable || !fbDb) return [];
+    try {
+        const snap = await fbDb.collection('leaderboard_global')
+            .orderBy('score', 'desc').limit(n).get();
+        return snap.docs.map(d => {
+            const v = d.data() || {};
+            return { uid: v.uid || d.id, name: v.name || 'Anonymous', score: v.score || 0 };
+        });
+    } catch (e) { return []; }
+}
+
+// setPlayerName — 닉네임 설정/변경. 성공 시 state.name 저장, 정리된 이름 반환.
+async function setPlayerName(name) {
+    if (!lbAvailable || !fbFns) { toast('리더보드를 사용할 수 없어요'); return null; }
+    try {
+        const uid = await whenAuthReady;
+        if (!uid) { toast('리더보드를 사용할 수 없어요'); return null; }
+        const res = await fbFns.httpsCallable('setName')({ name });
+        const clean = res?.data?.name;
+        if (clean) {
+            state.name = clean; save('sb_name', clean);
+            return clean;
+        }
+        return null;
+    } catch (e) {
+        // 함수가 보낸 검증 메시지(1~16자/금지어 등)를 토스트로 노출.
+        toast(e?.message || '이름을 저장할 수 없어요');
+        return null;
+    }
+}
+
+// --- Leaderboard UI ---
+function renderLeaderboardName() {
+    const head = $('leaderboard-head'); if (!head) return;
+    head.innerHTML = '';
+    if (!lbAvailable) return;
+    if (state.name) {
+        const row = document.createElement('div');
+        row.className = 'lb-you';
+        row.innerHTML = `<span>나: ${escapeHtml(state.name)}</span><span class="lb-edit">변경</span>`;
+        row.querySelector('.lb-edit').onclick = () => promptName();
+        head.appendChild(row);
+    } else {
+        const row = document.createElement('div');
+        row.className = 'lb-name-row';
+        row.innerHTML = `<input id="lb-name-input" maxlength="16" placeholder="닉네임 입력 (1~16자)"><button id="lb-name-save">저장</button>`;
+        head.appendChild(row);
+        row.querySelector('#lb-name-save').onclick = async () => {
+            const val = (row.querySelector('#lb-name-input').value || '').trim();
+            if (!val) { toast('닉네임을 입력하세요'); return; }
+            const clean = await setPlayerName(val);
+            if (clean) { toast('닉네임 설정 완료!'); renderLeaderboardName(); renderSettings(); }
+        };
+    }
+}
+
+function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, c =>
+        ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+}
+
+function lbRowHtml(rank, name, score, isMe) {
+    const tcls = rank === 1 ? ' top1' : rank === 2 ? ' top2' : rank === 3 ? ' top3' : '';
+    const medal = rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : ('#' + rank);
+    return `<div class="lb-row${tcls}${isMe ? ' me' : ''}">` +
+        `<span class="lb-rank">${medal}</span>` +
+        `<span class="lb-pname">${escapeHtml(name)}</span>` +
+        `<span class="lb-score">${(score || 0).toLocaleString()}</span></div>`;
+}
+
+async function renderLeaderboard() {
+    renderLeaderboardName();
+    const body = $('leaderboard-body'); if (!body) return;
+    if (!lbAvailable) {
+        body.innerHTML = `<div class="lb-state">리더보드를 불러올 수 없어요 — 잠시 후 다시</div>`;
+        return;
+    }
+    body.innerHTML = `<div class="lb-state">불러오는 중…</div>`;
+    const list = await fetchLeaderboard(50);
+    if (!list.length) {
+        body.innerHTML = `<div class="lb-state">아직 기록이 없어요 — 첫 주인공이 되어보세요!<br><span style="font-size:12px;opacity:0.7">(또는 잠시 후 다시 시도)</span></div>`;
+        return;
+    }
+    let html = '<div class="lb-list">';
+    let meInTop = false;
+    list.forEach((e, i) => {
+        const isMe = myUid && e.uid === myUid;
+        if (isMe) meInTop = true;
+        html += lbRowHtml(i + 1, e.name, e.score, isMe);
+    });
+    // 내 기록이 top50 밖이면 별도로 핀 고정.
+    if (!meInTop && myStanding && Number.isFinite(myStanding.rank)) {
+        html += `</div><div class="lb-pinned-divider">⋯</div><div class="lb-list">`;
+        html += lbRowHtml(myStanding.rank, state.name || '나', myStanding.best, true);
+    }
+    html += '</div>';
+    body.innerHTML = html;
+}
+
+function openLeaderboard() {
+    $('leaderboard-modal').classList.add('open');
+    renderLeaderboard();
+}
+
+// 인라인 prompt 로 닉네임 변경 (설정/리더보드 공용).
+async function promptName() {
+    const cur = state.name || '';
+    const val = window.prompt('닉네임 (1~16자)', cur);
+    if (val === null) return;
+    const trimmed = val.trim();
+    if (!trimmed) { toast('닉네임을 입력하세요'); return; }
+    const clean = await setPlayerName(trimmed);
+    if (clean) { toast('닉네임 설정 완료!'); renderSettings(); renderLeaderboardName(); }
 }
 
 // ---------- Wiring ----------
@@ -1061,6 +1324,7 @@ function wire() {
     $('coins-pill').onclick = () => openShop('store');
     $('gems-pill').onclick = () => openShop('store');
     $('btn-shop').onclick = () => openShop('skins');
+    $('btn-leaderboard').onclick = () => openLeaderboard();
     $('btn-missions').onclick = () => { renderMissions(); $('missions-modal').classList.add('open'); };
     $('btn-daily').onclick = () => { renderDaily(); $('daily-modal').classList.add('open'); };
     $('btn-settings').onclick = () => { renderSettings(); $('settings-modal').classList.add('open'); };
@@ -1078,6 +1342,7 @@ function wire() {
     };
     $('set-sound').onclick = () => { state.settings.sound = !state.settings.sound; persist(); renderSettings(); if (window.__setSound) window.__setSound(state.settings.sound); };
     $('set-haptics').onclick = () => { state.settings.haptics = !state.settings.haptics; persist(); renderSettings(); };
+    $('set-name-row').onclick = () => promptName();
     $('set-reset-row').onclick = () => {
         if (confirm('Reset ALL progress, coins, gems and unlocks? This cannot be undone.')) {
             ['sb_coins','sb_gems','sb_skin','sb_owned','sb_removeads','sb_powerups','sb_armed','sb_daily','sb_missions','sb_stats'].forEach(k => LS.removeItem(k));
@@ -1111,6 +1376,12 @@ window.SB = {
     soundOn: () => state.settings.sound,
     hapticsOn: () => state.settings.haptics,
     openShop,
+    // ---- Online leaderboard ----
+    startRun, submitScore, fetchLeaderboard, setPlayerName,
+    openLeaderboard,
+    lbAvailable: () => lbAvailable,
+    myUid: () => myUid,
+    myStanding: () => myStanding,
 };
 })();
 </script>
@@ -2550,6 +2821,8 @@ function quitToMenu() {
         });
         SB.consumeArmed();
         if (earned > 0) SB.toast('🪙 +' + earned + ' earned');
+        // 온라인 글로벌 리더보드 점수 제출 (실패 무시)
+        SB.submitScore && SB.submitScore(finalScore);
     }
     if (finalScore > bestScore) { bestScore = finalScore; localStorage.setItem('snakeball_best', bestScore.toString()); }
     goHome();
@@ -2599,6 +2872,9 @@ function updateBestScoreDisplay() {
 function startGame() {
     initAudio();
     gameState = 'playing';
+
+    // 온라인 리더보드 세션 발급 (fire-and-forget — 실패해도 게임엔 영향 없음)
+    window.SB && SB.startRun && SB.startRun();
 
     mainMenu.style.display = 'none';
     resultScreen.style.display = 'none';
@@ -2747,6 +3023,9 @@ function finalizeGameOver() {
         });
         SB.consumeArmed();
     }
+
+    // ---- 온라인 글로벌 리더보드 점수 제출 (실패 무시) ----
+    window.SB && SB.submitScore && SB.submitScore(finalScore);
 
     // Result extra line (best combo / mission hint)
     const extra = document.getElementById('result-extra');
