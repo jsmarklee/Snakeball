@@ -744,12 +744,49 @@ function showRewardedAd() {
 }
 
 // ---------- IAP ----------
+//
+// Native/Toss purchases are SERVER-VERIFIED: the store reports a successful
+// purchase (with a receipt identifier), we call the verifyAndFulfillPurchase
+// Cloud Function, and only grant what the SERVER returns. The local STORE.grant
+// is used ONLY for the web dev mock — never for real purchases. If verification
+// fails or Firebase is unavailable, we do NOT grant (toast an error instead).
+//
+// Receipt-passing contract (native → web, via __bridgeCallbacks('iapPurchase', …)):
+//   iOS:     { success:true, transactionId:'<StoreKit2 transaction.id>', productId }
+//   Android: { success:true, purchaseToken:'<Play purchaseToken>', productId }
+
+// Verify a native/Toss receipt server-side and grant the SERVER's amount.
+// Returns true only if the server confirmed + granted. Never throws.
+async function verifyAndGrant({ platform: plat, productId, transactionId, purchaseToken }) {
+    if (!lbAvailable || !fbFns) {
+        toast('Store unavailable — try again later');
+        return false;
+    }
+    try {
+        const uid = await whenAuthReady;
+        if (!uid) { toast('Store unavailable — try again later'); return false; }
+        const res = await fbFns.httpsCallable('verifyAndFulfillPurchase')({
+            platform: plat, productId, transactionId, purchaseToken,
+        });
+        const data = res?.data;
+        if (data?.success && data.grant) {
+            grant(data.grant);   // SERVER-authoritative amount, not STORE.grant
+            return true;
+        }
+        toast('Purchase could not be verified');
+        return false;
+    } catch (e) {
+        toast('Purchase verification failed');
+        return false;
+    }
+}
+
 async function purchase(productId) {
     const product = STORE.find(p => p.id === productId);
     if (!product) return false;
 
     if (platform === 'web') {
-        // dev mock — instant grant
+        // dev mock — instant local grant (no server verification on web)
         toast('💳 (demo purchase)…');
         await new Promise(r => setTimeout(r, 500));
         grant(product.grant);
@@ -759,16 +796,26 @@ async function purchase(productId) {
         try {
             const sdk = await import('@apps-in-toss/web-framework');
             const res = await sdk.createOneTimePurchase?.({ productId });
-            if (res && (res.status === 'success' || res.success)) { grant(product.grant); return true; }
+            if (res && (res.status === 'success' || res.success)) {
+                // Toss returns an orderId on the purchase result — verify it server-side.
+                const orderId = res.orderId || res.data?.orderId || res.order?.orderId;
+                return await verifyAndGrant({ platform: 'toss', productId, transactionId: orderId });
+            }
             return false;
         } catch (e) { return false; }
     }
-    // iOS / Android: native store + (in production) server receipt verification
+    // iOS / Android: native store → server receipt verification → grant.
     return new Promise((resolve) => {
-        bridgeCallbacks['iapPurchase'] = (data) => {
+        bridgeCallbacks['iapPurchase'] = async (data) => {
             delete bridgeCallbacks['iapPurchase'];
-            if (data?.success) { grant(product.grant); resolve(true); }
-            else resolve(false);
+            if (!data?.success) { resolve(false); return; }
+            const ok = await verifyAndGrant({
+                platform,
+                productId: data.productId || productId,
+                transactionId: data.transactionId,   // iOS: StoreKit2 transaction.id
+                purchaseToken: data.purchaseToken,    // Android: Play purchaseToken
+            });
+            resolve(ok);
         };
         postNative('iapHandler', 'purchase', { productId });
     });

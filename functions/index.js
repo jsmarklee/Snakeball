@@ -9,15 +9,37 @@
  */
 
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
+const { defineSecret } = require("firebase-functions/params");
 const { initializeApp } = require("firebase-admin/app");
 const { getFirestore, FieldValue } = require("firebase-admin/firestore");
 const { checkBlocklist } = require("./blocklist");
+const { verifyAndFulfill } = require("./iapVerification");
 
 initializeApp();
 const db = getFirestore();
 
 // MinefieldSweeper와 동일 리전 (한국 사용자/Toss 대상).
 const REGION = "asia-northeast3";
+
+// ─── IAP 검증용 시크릿 (verifyAndFulfillPurchase에 바인딩) ─────
+// 값은 `firebase functions:secrets:set <NAME>` 으로 설정 (배포 전 필수).
+//
+//  APP_STORE_KEY_ID / APP_STORE_ISSUER_ID / APP_STORE_PRIVATE_KEY
+//    → App Store Connect > Users and Access > Integrations > In-App Purchase 키.
+//      KEY_ID = 키 ID, ISSUER_ID = Issuer ID, PRIVATE_KEY = 다운로드한 .p8 내용.
+//  GOOGLE_PLAY_SERVICE_ACCOUNT
+//    → Google Play Console에 연결한 GCP 서비스 계정의 JSON 키 (androidpublisher 권한).
+//  TOSS_IAP_API_KEY / TOSS_IAP_BASE_URL / TOSS_MTLS_CERT / TOSS_MTLS_KEY
+//    → Toss 개발자 콘솔. BASE_URL=https://apps-in-toss-api.toss.im,
+//      CERT/KEY = 콘솔 > mTLS 인증서에서 발급한 client cert(.crt)/key(.key) PEM.
+const appStoreKeyId = defineSecret("APP_STORE_KEY_ID");
+const appStoreIssuerId = defineSecret("APP_STORE_ISSUER_ID");
+const appStorePrivateKey = defineSecret("APP_STORE_PRIVATE_KEY");
+const googlePlayServiceAccount = defineSecret("GOOGLE_PLAY_SERVICE_ACCOUNT");
+const tossIapApiKey = defineSecret("TOSS_IAP_API_KEY");
+const tossIapBaseUrl = defineSecret("TOSS_IAP_BASE_URL");
+const tossMtlsCert = defineSecret("TOSS_MTLS_CERT");
+const tossMtlsKey = defineSecret("TOSS_MTLS_KEY");
 
 // ─── 안티치트 상수 ────────────────────────────────────────────
 //
@@ -246,3 +268,88 @@ exports.setName = onCall({ region: REGION }, async (request) => {
 
   return { name };
 });
+
+// ─── IAP 영수증 검증 ──────────────────────────────────────────
+
+/**
+ * verifyAndFulfillPurchase — IAP 영수증 서버 검증 + 상품 지급.
+ * 입력: { platform:'ios'|'android'|'toss', productId, transactionId?, purchaseToken? }
+ *  - iOS:     transactionId = StoreKit2 transaction.id
+ *  - Android: transactionId 또는 purchaseToken = Play purchaseToken
+ *  - Toss:    transactionId = SDK 구매 결과 orderId
+ *
+ * 검증 통과 시 서버 권위 PRODUCTS 맵의 grant를 반환 ({ success, productId, grant }).
+ * 지급량은 절대 클라이언트가 정하지 못한다. 실패하면 HttpsError를 throw하므로
+ * 클라이언트는 grant를 하지 않는다.
+ */
+exports.verifyAndFulfillPurchase = onCall(
+  {
+    region: REGION,
+    secrets: [
+      appStoreKeyId, appStoreIssuerId, appStorePrivateKey,
+      googlePlayServiceAccount,
+      tossIapApiKey, tossIapBaseUrl, tossMtlsCert, tossMtlsKey,
+    ],
+  },
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "인증이 필요합니다.");
+    }
+
+    const { platform, productId } = request.data || {};
+    // Android는 purchaseToken, iOS/Toss는 transactionId — 둘 중 하나를 transaction 식별자로.
+    const transactionId = request.data?.transactionId ?? request.data?.purchaseToken;
+
+    if (!platform || typeof platform !== "string") {
+      throw new HttpsError("invalid-argument", "platform이 필요합니다.");
+    }
+    if (!transactionId) {
+      throw new HttpsError("invalid-argument", "transactionId가 필요합니다.");
+    }
+    if (!productId || typeof productId !== "string") {
+      throw new HttpsError("invalid-argument", "productId가 필요합니다.");
+    }
+
+    const uid = request.auth.uid;
+
+    try {
+      return await verifyAndFulfill(uid, platform, String(transactionId), productId, {
+        keyId: appStoreKeyId.value(),
+        issuerId: appStoreIssuerId.value(),
+        privateKey: appStorePrivateKey.value(),
+        bundleId: "studio.hodgepodge.snakeball",
+        androidPackageName: "studio.hodgepodge.snakeball",
+        googlePlayServiceAccount: googlePlayServiceAccount.value(),
+        // 미설정 시 ""로 resolve → verifyWithToss가 MISSING_TOSS_CREDENTIALS throw.
+        tossIapBaseUrl: tossIapBaseUrl.value() || null,
+        tossMtlsCert: tossMtlsCert.value() || null,
+        tossMtlsKey: tossMtlsKey.value() || null,
+      });
+    } catch (error) {
+      if (error instanceof HttpsError) throw error;
+      const msg = error.message || "";
+      if (msg === "INVALID_PRODUCT") {
+        throw new HttpsError("invalid-argument", "알 수 없는 상품입니다.");
+      }
+      if (msg === "PRODUCT_ID_MISMATCH") {
+        throw new HttpsError("invalid-argument", "상품 ID가 일치하지 않습니다.");
+      }
+      if (msg === "UNSUPPORTED_PLATFORM") {
+        throw new HttpsError("unimplemented", "지원하지 않는 플랫폼입니다.");
+      }
+      if (msg === "MISSING_APP_STORE_CREDENTIALS"
+        || msg === "MISSING_GOOGLE_PLAY_CREDENTIALS"
+        || msg === "MISSING_TOSS_CREDENTIALS") {
+        throw new HttpsError("internal", "서버 설정 오류입니다.");
+      }
+      if (msg.startsWith("APP_STORE_VERIFICATION_FAILED")
+        || msg.startsWith("GOOGLE_PLAY_INVALID_STATE")
+        || msg.startsWith("TOSS_VERIFICATION_FAILED")
+        || msg.startsWith("TOSS_INVALID_STATE")) {
+        throw new HttpsError("permission-denied", "구매 검증에 실패했습니다.");
+      }
+      console.error("verifyAndFulfillPurchase error:", error);
+      throw new HttpsError("internal", "결제 처리에 실패했습니다.");
+    }
+  }
+);

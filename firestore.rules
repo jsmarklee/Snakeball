@@ -19,6 +19,11 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // IAP 멱등성 원장 (전역 {platform}:{txId}): 함수(Admin SDK) 전용. 클라이언트 차단.
+    match /processed_transactions/{id} {
+      allow read, write: if false;
+    }
+
     // 유저 데이터: 본인만 읽기. 화이트리스트 필드만 생성/수정 가능.
     // (서버는 Admin SDK라 룰을 우회하므로 bestScore/name 서버 갱신은 영향 없음.)
     match /users/{uid} {

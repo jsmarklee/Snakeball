@@ -66,7 +66,19 @@ class MainActivity : ComponentActivity() {
         // on a successful purchase notify the web layer, then consume immediately so the
         // item can be bought again.
         billingManager = BillingManager(this) { success, purchaseToken, productId, _ ->
-            val json = if (success) "{ success: true }" else "{ success: false }"
+            // Surface the purchaseToken + productId to the web layer so it can call the
+            // verifyAndFulfillPurchase Cloud Function (server-side receipt verification).
+            // We still consume immediately below — the server verifies token validity via
+            // the Google Play Developer API, which works before/after consumption.
+            val json = if (success) {
+                val obj = JSONObject()
+                obj.put("success", true)
+                obj.put("purchaseToken", purchaseToken ?: "")
+                obj.put("productId", productId ?: "")
+                obj.toString()
+            } else {
+                "{ \"success\": false }"
+            }
             if (::webView.isInitialized) {
                 webView.post {
                     webView.evaluateJavascript("window.__bridgeCallbacks('iapPurchase', $json);", null)
