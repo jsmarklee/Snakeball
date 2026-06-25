@@ -534,6 +534,7 @@ canvas { display: block; width: 100%; height: 100%; }
             <button class="modal-close" data-close>✕</button>
             <h2>🏆 Leaderboard</h2>
             <div class="sub">전 세계 최고 점수 TOP 50</div>
+            <div id="leaderboard-native"></div>
             <div id="leaderboard-head"></div>
             <div id="leaderboard-body"></div>
         </div>
@@ -690,6 +691,33 @@ function vibrate(type = 'light') {
     } else if (navigator.vibrate) {
         navigator.vibrate(patternMap[type]);
     }
+}
+
+// ---------- Native leaderboards (iOS Game Center / Android Play Games) ----------
+// 네이티브 리더보드 제출은 Firebase 글로벌 리더보드에 추가로 동작한다 (점수는 양쪽 모두로 감).
+// web/toss 에서는 no-op.
+function submitNativeScore(score) {
+    const s = Math.max(0, Math.floor(Number(score) || 0));
+    if (platform === 'ios') {
+        postNative('gameHandler', 'submitScore', { score: s });
+    } else if (platform === 'android') {
+        // AndroidBridge.submitScore(json)
+        try { window.AndroidBridge.submitScore?.(JSON.stringify({ score: s })); } catch (_) {}
+    }
+}
+
+// 네이티브 리더보드 UI 열기 (iOS Game Center / Android Play Games). web/toss no-op.
+function showNativeLeaderboard() {
+    if (platform === 'ios') {
+        postNative('gameHandler', 'showLeaderboard');
+    } else if (platform === 'android') {
+        try { window.AndroidBridge.showLeaderboard?.(JSON.stringify({})); } catch (_) {}
+    }
+}
+
+// iOS는 로드 시 Game Center 인증을 1회 트리거 (Android는 런치 시 네이티브에서 사인인).
+if (platform === 'ios') {
+    postNative('gameHandler', 'authenticate');
 }
 
 // Show a rewarded ad. Resolves true if reward earned, false otherwise.
@@ -1345,7 +1373,23 @@ async function renderLeaderboard() {
 
 function openLeaderboard() {
     $('leaderboard-modal').classList.add('open');
+    renderNativeLeaderboardButton();
     renderLeaderboard();
+}
+
+// iOS/Android에서는 Firebase(크로스플랫폼) 리더보드 위에 네이티브 리더보드 버튼을 노출.
+function renderNativeLeaderboardButton() {
+    const host = $('leaderboard-native');
+    if (!host) return;
+    if (platform === 'ios' || platform === 'android') {
+        const label = platform === 'ios' ? '🎮 Game Center' : '🎮 Play Games';
+        host.innerHTML =
+            '<button class="big-btn ghost" id="lb-native-btn" style="margin:0 0 12px">' + label + '</button>';
+        const btn = $('lb-native-btn');
+        if (btn) btn.onclick = () => showNativeLeaderboard();
+    } else {
+        host.innerHTML = '';
+    }
 }
 
 // 인라인 prompt 로 닉네임 변경 (설정/리더보드 공용).
@@ -1426,6 +1470,8 @@ window.SB = {
     // ---- Online leaderboard ----
     startRun, submitScore, fetchLeaderboard, setPlayerName,
     openLeaderboard,
+    // ---- Native leaderboards (iOS Game Center / Android Play Games) ----
+    submitNativeScore, showNativeLeaderboard,
     lbAvailable: () => lbAvailable,
     myUid: () => myUid,
     myStanding: () => myStanding,
@@ -2870,6 +2916,8 @@ function quitToMenu() {
         if (earned > 0) SB.toast('🪙 +' + earned + ' earned');
         // 온라인 글로벌 리더보드 점수 제출 (실패 무시)
         SB.submitScore && SB.submitScore(finalScore);
+        // 네이티브 리더보드(Game Center / Play Games)에도 추가 제출
+        SB.submitNativeScore && SB.submitNativeScore(finalScore);
     }
     if (finalScore > bestScore) { bestScore = finalScore; localStorage.setItem('snakeball_best', bestScore.toString()); }
     goHome();
@@ -3073,6 +3121,8 @@ function finalizeGameOver() {
 
     // ---- 온라인 글로벌 리더보드 점수 제출 (실패 무시) ----
     window.SB && SB.submitScore && SB.submitScore(finalScore);
+    // ---- 네이티브 리더보드(Game Center / Play Games)에도 추가 제출 ----
+    window.SB && SB.submitNativeScore && SB.submitNativeScore(finalScore);
 
     // Result extra line (best combo / mission hint)
     const extra = document.getElementById('result-extra');

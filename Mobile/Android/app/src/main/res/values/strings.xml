@@ -1,3 +1,9 @@
 <resources>
     <string name="app_name">Snakeball</string>
+
+    <!-- Play Games Services. USER: replace these placeholders with the values from the
+         Google Play Console (Play Games Services > Configuration / Leaderboards).
+         games_app_id is the numeric project id; leaderboard_global is the leaderboard id. -->
+    <string name="games_app_id" translatable="false">0000000000</string>
+    <string name="leaderboard_global" translatable="false">snakeball.leaderboard.global</string>
 </resources>

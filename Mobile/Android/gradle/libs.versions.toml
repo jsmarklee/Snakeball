@@ -8,10 +8,12 @@ espressoCore = "3.5.1"
 activityCompose = "1.8.0"
 billing = "7.1.1"
 playServicesAds = "23.6.0"
+playGamesServicesV2 = "21.0.0"
 
 [libraries]
 billing-ktx = { group = "com.android.billingclient", name = "billing-ktx", version.ref = "billing" }
 play-services-ads = { group = "com.google.android.gms", name = "play-services-ads", version.ref = "playServicesAds" }
+play-services-games-v2 = { group = "com.google.android.gms", name = "play-services-games-v2", version.ref = "playGamesServicesV2" }
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 androidx-junit = { group = "androidx.test.ext", name = "junit", version.ref = "junitVersion" }

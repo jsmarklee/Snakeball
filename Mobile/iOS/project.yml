@@ -18,6 +18,7 @@ targets:
       - path: Snakeball
         excludes:
           - "Snakeball.storekit"   # dev StoreKit config; attach via the scheme, not bundled
+          - "Snakeball.entitlements"   # referenced via CODE_SIGN_ENTITLEMENTS, not a source
     dependencies:
       - package: GoogleMobileAds
         product: GoogleMobileAds
@@ -33,3 +34,6 @@ targets:
         TARGETED_DEVICE_FAMILY: "1"
         SWIFT_VERSION: "5.0"
         CODE_SIGN_STYLE: Automatic
+        # Game Center capability (entitlement). USER: enable Game Center on the App ID
+        # in the Apple Developer portal and create the leaderboard in App Store Connect.
+        CODE_SIGN_ENTITLEMENTS: Snakeball/Snakeball.entitlements

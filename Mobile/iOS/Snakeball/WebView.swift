@@ -28,6 +28,7 @@ struct WebView: UIViewRepresentable {
         ucc.add(weakDelegate, name: "adHandler")
         ucc.add(weakDelegate, name: "authHandler")
         ucc.add(weakDelegate, name: "iapHandler")
+        ucc.add(weakDelegate, name: "gameHandler")
 
         config.userContentController = ucc
         config.allowsInlineMediaPlayback = true
@@ -65,6 +66,7 @@ struct WebView: UIViewRepresentable {
         c.removeScriptMessageHandler(forName: "adHandler")
         c.removeScriptMessageHandler(forName: "authHandler")
         c.removeScriptMessageHandler(forName: "iapHandler")
+        c.removeScriptMessageHandler(forName: "gameHandler")
         coordinator.webView = nil
     }
 
@@ -93,6 +95,7 @@ struct WebView: UIViewRepresentable {
             case "adHandler": handleAd(action: action, body: body)
             case "authHandler": handleAuth(action: action)
             case "iapHandler": handleIAP(action: action, body: body)
+            case "gameHandler": handleGame(action: action, body: body)
             default: break
             }
         }
@@ -215,6 +218,34 @@ struct WebView: UIViewRepresentable {
             let restored = await StoreKitManager.shared.restoreNonConsumables()
             let ids = restored.map { "\"\($0)\"" }.joined(separator: ", ")
             triggerIAP(name: "iapRestore", data: "{ \"success\": true, \"productIds\": [\(ids)] }")
+        }
+
+        // MARK: - Game Center (leaderboards)
+
+        private func handleGame(action: String, body: [String: Any]) {
+            Task { @MainActor in
+                switch action {
+                case "authenticate":
+                    _ = await GameCenterManager.shared.authenticate()
+                case "submitScore":
+                    // score may arrive as Int or Double from JS.
+                    let score: Int = {
+                        if let i = body["score"] as? Int { return i }
+                        if let d = body["score"] as? Double { return Int(d) }
+                        if let s = body["score"] as? String { return Int(s) ?? 0 }
+                        return 0
+                    }()
+                    _ = await GameCenterManager.shared.submit(score: score)
+                case "showLeaderboard":
+                    if let rootVC = self.getRootViewController() {
+                        GameCenterManager.shared.presentLeaderboard(from: rootVC)
+                    } else {
+                        GameCenterManager.shared.presentLeaderboard()
+                    }
+                default:
+                    break
+                }
+            }
         }
 
         private func triggerIAP(name: String, data: String) {

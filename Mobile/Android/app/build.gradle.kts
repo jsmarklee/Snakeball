@@ -85,6 +85,7 @@ dependencies {
     implementation(libs.androidx.webkit)
     implementation(libs.billing.ktx)
     implementation(libs.play.services.ads)
+    implementation(libs.play.services.games.v2)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)

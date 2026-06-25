@@ -40,6 +40,7 @@ class MainActivity : ComponentActivity() {
     private var pendingRewardEarned: Boolean = false
     private var rewardCallbackFired: Boolean = false
     lateinit var billingManager: BillingManager
+    lateinit var playGamesManager: PlayGamesManager
     private final var TAG = "MainActivity"
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -89,6 +90,13 @@ class MainActivity : ComponentActivity() {
             }
         }
         billingManager.startConnection()
+
+        // Play Games Services: 초기화 + 런치 시 사인인 (iOS Game Center와 동일 역할).
+        playGamesManager = PlayGamesManager(this)
+        playGamesManager.initialize()
+        playGamesManager.authenticate { success ->
+            android.util.Log.d(TAG, "Play Games sign-in on launch: $success")
+        }
 
         // Keep screen awake during gameplay
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -410,6 +418,31 @@ class AndroidBridge(private val webView: WebView, private val context: Context, 
         val js = "window.__bridgeCallbacks('deviceId', { id: '$safeId' });"
         webView.post {
             webView.evaluateJavascript(js, null)
+        }
+    }
+
+    // ─── Play Games Services (leaderboards) ───────────────
+
+    @JavascriptInterface
+    fun submitScore(json: String? = null) {
+        try {
+            val obj = JSONObject(json ?: "{}")
+            val score = obj.optLong("score", 0L)
+            activity.runOnUiThread {
+                activity.playGamesManager.submitScore(score) { success ->
+                    val js = "window.__bridgeCallbacks('gameCenterScore', { success: $success });"
+                    webView.post { webView.evaluateJavascript(js, null) }
+                }
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("AndroidBridge", "submitScore error: ${e.message}")
+        }
+    }
+
+    @JavascriptInterface
+    fun showLeaderboard(json: String? = null) {
+        activity.runOnUiThread {
+            activity.playGamesManager.showLeaderboard()
         }
     }
 }
