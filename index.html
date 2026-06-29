@@ -1677,7 +1677,8 @@ async function _xpEligibleGames() {
         link: g.platforms[platform],
         installId: _xpInstallId(g),
         reward: g.reward || 0,
-        rewarded: (g.reward || 0) > 0 && !claimed.has(g.id),
+        // Reward badge only where install is detectable (iOS/Android); Toss/web = directory only.
+        rewarded: isInstallDetectionAvailable() && (g.reward || 0) > 0 && !claimed.has(g.id),
     }));
     const installed = await _xpInstalledSet(candidates);
     return candidates.filter(g => !installed.has(g.installId));
