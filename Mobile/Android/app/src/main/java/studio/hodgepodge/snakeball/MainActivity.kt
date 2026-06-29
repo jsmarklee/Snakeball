@@ -1,7 +1,9 @@
 package studio.hodgepodge.snakeball
 
 import android.content.Context
+import android.content.Intent
 import android.graphics.Color
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.VibrationEffect
@@ -421,6 +423,28 @@ class AndroidBridge(private val webView: WebView, private val context: Context, 
         }
     }
 
+    // ─── Cross-promo install detection ────────────────────
+    // 형제 게임이 설치돼 있는지 PackageManager로 질의하고, callId로 키된 JS 콜백
+    // 레지스트리로 결과를 회신한다(여러 게임 동시 질의가 안 섞이게). Android 11+ 에선
+    // 질의하는 각 package가 AndroidManifest <queries>에 선언돼 있어야 보인다(아니면 항상
+    // false). callId는 JS에서 "installCheck:<n>"로 생성 — evaluateJavascript() 문자열을
+    // 인젝션-안전하게 유지하려 영숫자 + ':'만 echo한다.
+    @JavascriptInterface
+    fun isInstalled(packageName: String, callId: String) {
+        if (callId.isBlank() || !callId.all { it.isLetterOrDigit() || it == ':' }) return
+        val installed = try {
+            context.packageManager.getPackageInfo(packageName, 0)
+            true
+        } catch (e: Exception) {
+            false
+        }
+        webView.post {
+            webView.evaluateJavascript(
+                "window.__bridgeCallbacks('$callId', { installed: $installed });", null
+            )
+        }
+    }
+
     // ─── Play Games Services (leaderboards) ───────────────
 
     @JavascriptInterface
@@ -443,6 +467,43 @@ class AndroidBridge(private val webView: WebView, private val context: Context, 
     fun showLeaderboard(json: String? = null) {
         activity.runOnUiThread {
             activity.playGamesManager.showLeaderboard()
+        }
+    }
+
+    // ─── In-app links & email (About section) ─────────────
+    // Privacy/Terms via ACTION_VIEW (browser), Support via ACTION_SENDTO (mail app).
+    // Wrapped + fail-soft so a missing handler app never crashes the game.
+
+    @JavascriptInterface
+    fun openUrl(json: String? = null) {
+        try {
+            val url = JSONObject(json ?: "{}").optString("url", "")
+            if (url.isEmpty()) return
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            activity.runOnUiThread {
+                try { context.startActivity(intent) } catch (e: Exception) { e.printStackTrace() }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    @JavascriptInterface
+    fun composeEmail(json: String? = null) {
+        try {
+            val to = JSONObject(json ?: "{}").optString("to", "")
+            if (to.isEmpty()) return
+            val intent = Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:$to")).apply {
+                putExtra(Intent.EXTRA_SUBJECT, "Snakeball Support")
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            activity.runOnUiThread {
+                try { context.startActivity(intent) } catch (e: Exception) { e.printStackTrace() }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
         }
     }
 }

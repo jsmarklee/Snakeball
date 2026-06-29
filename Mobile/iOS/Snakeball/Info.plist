@@ -2,6 +2,28 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<!-- Own URL scheme so sibling apps can detect Snakeball via canOpenURL.
+	     Must match games.json `scheme` (snakeball://). (플레이북 30 §11) -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLName</key>
+			<string>studio.hodgepodge.snakeball</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>snakeball</string>
+			</array>
+		</dict>
+	</array>
+	<!-- Sibling schemes probed for cross-promo install detection. Each must match
+	     that sibling's own CFBundleURLSchemes + games.json `scheme`. -->
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>mineta</string>
+		<string>pow2</string>
+	</array>
 	<key>CFBundleDisplayName</key>
 	<string>Snakeball</string>
 	<key>CFBundleName</key>

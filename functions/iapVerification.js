@@ -20,6 +20,24 @@ const https = require("https");
 // 번들/패키지 식별자 — iOS/Android 동일.
 const BUNDLE_ID = "studio.hodgepodge.snakeball";
 
+/**
+ * 테스터 화이트리스트 (fail-closed). config/test_accounts 문서의 uids 배열에 든
+ * caller만 비-Production(Sandbox/Xcode/라이선스 테스트) 결제로 실상품을 받을 수 있다.
+ * config/* 는 firestore.rules에서 client read/write 전면 차단(Admin SDK 전용)이라
+ * 안전하며, 테스터 추가/삭제는 콘솔에서 문서만 고치면 된다(재배포 불필요).
+ * 조회 실패는 fail-closed(=테스터 아님)로 처리.
+ */
+async function isTestAccount(db, uid) {
+  try {
+    const doc = await db.collection("config").doc("test_accounts").get();
+    if (!doc.exists) return false;
+    const uids = doc.data().uids;
+    return Array.isArray(uids) && uids.includes(uid);
+  } catch (e) {
+    return false;
+  }
+}
+
 // ─── 서버 권위 상품 정의 ─────────────────────────────────────
 // SKU(productId) → 지급량. 이 맵이 단일 진실 소스다. 클라이언트가 보낸
 // grant 금액은 무시되며, 여기 정의된 amount만 지급된다 (index.html STORE와 동기 유지).
@@ -333,6 +351,22 @@ async function verifyAndFulfill(uid, platform, transactionId, productId, secrets
     throw new Error("UNSUPPORTED_PLATFORM");
   }
 
+  // 3-1. environment 강제 거부 (플레이북 §9-4 A1 — IAP 재구현 시 가장 자주 빠지는 컨트롤).
+  // Apple은 Production 401/404 시 Sandbox 엔드포인트로 폴백하므로 TestFlight/Sandbox
+  // 영수증이 environment:"Sandbox"로 검증 통과한다. Android 라이선스 테스트도 마찬가지.
+  // 지급부가 environment를 안 보면 테스터가 $0 결제로 실재화를 무한 발행할 수 있다.
+  // → 비-Production 트랜잭션은 config/test_accounts 화이트리스트에 든 caller만 허용.
+  // (Toss는 verifyWithToss가 항상 "Production"을 반환 → 영향 없음.)
+  const env = verifiedData?.environment;
+  if (env && env !== "Production") {
+    const tester = await isTestAccount(db, uid);
+    if (!tester) {
+      console.error(`Rejecting non-production transaction: uid=${uid} platform=${platform} env=${env} product=${productId}`);
+      throw new Error(`NON_PRODUCTION_TRANSACTION: ${env}`);
+    }
+    console.log(`Allowing non-production transaction for test account: uid=${uid} env=${env}`);
+  }
+
   // 4. Firestore 트랜잭션으로 원자적 dedup + 지급 (동시 구매 race condition 방지).
   await db.runTransaction(async (transaction) => {
     const txDoc = await transaction.get(txRef);
@@ -342,6 +376,10 @@ async function verifyAndFulfill(uid, platform, transactionId, productId, secrets
     }
     const userDoc = await transaction.get(userRef);
     const userData = userDoc.exists ? userDoc.data() : {};
+    // tombstone(migrated_to) 계정으로의 지급 차단 — 트랜잭션 안에서 재확인. (플레이북 §9-4 M3)
+    if (userData.migrated_to) {
+      throw new Error("ACCOUNT_MIGRATED");
+    }
 
     const updates = {};
     if (grant.coins) updates.coins = (userData.coins ?? 0) + grant.coins;

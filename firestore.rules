@@ -25,20 +25,25 @@ service cloud.firestore {
     }
 
     // 유저 데이터: 본인만 읽기. 화이트리스트 필드만 생성/수정 가능.
-    // (서버는 Admin SDK라 룰을 우회하므로 bestScore/name 서버 갱신은 영향 없음.)
+    // ⚠️ name/bestScore는 화이트리스트에서 제외 — 둘 다 서버 권위 필드다 (플레이북 §5).
+    //   - name: setName 함수가 blocklist+길이로 모더레이션한다. 룰로 직접 쓰게 두면
+    //     악성 클라가 updateDoc({name:'<욕설>'})로 모더레이션을 우회하고, submitScore가
+    //     그 값을 리더보드로 전파한다(글로벌 #1 욕설 → 스토어 리젝). Admin SDK 전용 쓰기.
+    //   - bestScore: submitScore가 세션 검증 후에만 갱신. 클라 쓰기 불필요.
+    // (서버는 Admin SDK라 룰을 우회하므로 name/bestScore 서버 갱신은 영향 없음.)
     match /users/{uid} {
       allow read: if request.auth != null && request.auth.uid == uid;
 
       allow create: if request.auth != null
         && request.auth.uid == uid
         && request.resource.data.keys().hasOnly([
-          'name', 'bestScore', 'stableId', 'createdAt', 'lastSeenAt'
+          'stableId', 'createdAt', 'lastSeenAt'
         ]);
 
       allow update: if request.auth != null
         && request.auth.uid == uid
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-          'name', 'bestScore', 'stableId', 'createdAt', 'lastSeenAt'
+          'stableId', 'createdAt', 'lastSeenAt'
         ]);
 
       // 삭제 차단.

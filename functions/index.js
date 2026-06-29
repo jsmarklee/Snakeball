@@ -10,6 +10,7 @@
 
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const { defineSecret } = require("firebase-functions/params");
+const crypto = require("crypto");
 const { initializeApp } = require("firebase-admin/app");
 const { getFirestore, FieldValue } = require("firebase-admin/firestore");
 const { checkBlocklist } = require("./blocklist");
@@ -98,7 +99,7 @@ function sanitizeName(raw) {
  * game_sessions/{token} = { uid, startedAt, used:false } 생성.
  * 반환: { sessionToken }.
  */
-exports.startRun = onCall({ region: REGION }, async (request) => {
+exports.startRun = onCall({ region: REGION, minInstances: 1 }, async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "인증이 필요합니다.");
   }
@@ -124,7 +125,7 @@ exports.startRun = onCall({ region: REGION }, async (request) => {
  *     users/{uid}.bestScore 갱신
  *  4) 반환: { best, rank }
  */
-exports.submitScore = onCall({ region: REGION }, async (request) => {
+exports.submitScore = onCall({ region: REGION, minInstances: 1 }, async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "인증이 필요합니다.");
   }
@@ -188,6 +189,8 @@ exports.submitScore = onCall({ region: REGION }, async (request) => {
   const userRef = db.collection("users").doc(uid);
   const userDoc = await userRef.get();
   const userData = userDoc.exists ? userDoc.data() : {};
+  // 복구로 다른 uid로 이전된(tombstone) 계정으로의 점수 기록을 차단. (플레이북 21 §2)
+  assertNotMigrated(userData);
 
   // 이름 우선순위: 이번 요청 > 저장된 이름 > Anonymous.
   const finalName = providedName || userData.name || "Anonymous";
@@ -244,7 +247,11 @@ exports.setName = onCall({ region: REGION }, async (request) => {
   const uid = request.auth.uid;
   const name = sanitizeName((request.data || {}).name);
 
-  await db.collection("users").doc(uid).set({ name }, { merge: true });
+  const nameRef = db.collection("users").doc(uid);
+  const nameDoc = await nameRef.get();
+  assertNotMigrated(nameDoc.exists ? nameDoc.data() : {});
+
+  await nameRef.set({ name }, { merge: true });
 
   // 이 uid의 리더보드 문서들에 이름 전파 (global + 이번 주 weekly).
   const batch = db.batch();
@@ -267,6 +274,237 @@ exports.setName = onCall({ region: REGION }, async (request) => {
   if (hasWrites) await batch.commit();
 
   return { name };
+});
+
+// ─── 계정 복구 (stableId 자동 + 복구 코드 수동) ─────────────────
+// 익명 게임이라 진행이 기기에 묶인다. 새 기기/재설치에서 리더보드 신원
+// (users/{uid}: name/bestScore)을 되살리는 경로. (플레이북 20 §1, 21 §2)
+// ⚠️ Snakeball 코인/젬은 localStorage(기기-로컬)라 이 경로로 복구되지 않는다 —
+//    리더보드 신원/이름/최고점만 이전한다. 클라우드 세이브 도입 시 경제도 함께.
+
+// 0/O/1/I/L 제외(필기 혼동 방지). 31^8 ≈ 8.5e11 엔트로피 → 무차별 대입 비현실적.
+const RECOVERY_ALPHABET = "23456789ABCDEFGHJKMNPQRSTUVWXYZ";
+
+function generateRecoveryCodeString() {
+  let s = "SNB-";
+  for (let i = 0; i < 4; i++) s += RECOVERY_ALPHABET[crypto.randomInt(RECOVERY_ALPHABET.length)];
+  s += "-";
+  for (let i = 0; i < 4; i++) s += RECOVERY_ALPHABET[crypto.randomInt(RECOVERY_ALPHABET.length)];
+  return s;
+}
+
+function normalizeRecoveryCode(code) {
+  if (typeof code !== "string") return "";
+  return code.toUpperCase().replace(/\s+/g, "").replace(/[^A-Z0-9-]/g, "");
+}
+
+/** migrated_to 가 찍힌 tombstone doc으로의 모든 grant/score/이름 op를 막는다. */
+function assertNotMigrated(data) {
+  if (data && data.migrated_to) {
+    throw new HttpsError("failed-precondition", "ACCOUNT_MIGRATED");
+  }
+}
+
+/**
+ * generateRecoveryCode — 호출자의 복구 코드 발급(이미 있으면 그대로 반환).
+ * 반환: { code }. 클라이언트는 표시 + 자동 클립보드 복사.
+ */
+exports.generateRecoveryCode = onCall({ region: REGION }, async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "인증이 필요합니다.");
+  const uid = request.auth.uid;
+  const ref = db.collection("users").doc(uid);
+  const doc = await ref.get();
+  const data = doc.exists ? doc.data() : null;
+  assertNotMigrated(data || {});
+  if (data && data.recoveryCode) return { code: data.recoveryCode };
+
+  // 충돌 시 재시도(거의 발생 안 함).
+  let attempts = 0;
+  while (attempts < 8) {
+    const candidate = generateRecoveryCodeString();
+    const taken = await db.collection("users").where("recoveryCode", "==", candidate).limit(1).get();
+    if (taken.empty) {
+      await ref.set(
+        { recoveryCode: candidate, createdAt: data?.createdAt || FieldValue.serverTimestamp() },
+        { merge: true }
+      );
+      return { code: candidate };
+    }
+    attempts++;
+  }
+  throw new HttpsError("internal", "코드 생성에 실패했습니다. 다시 시도해주세요.");
+});
+
+/**
+ * recoverByCode — 다른 기기에서 발급한 코드로 소스 계정을 현재 익명 uid로 이전.
+ * 입력: { code, force? }. 이미 데이터가 있으면 force=true 필요(클라가 파괴적 확인 후).
+ * 소스는 migrated_to 스탬프 + recoveryCode 삭제로 잠근다(복제 방지). 반환: { recovered, name, bestScore }.
+ */
+exports.recoverByCode = onCall({ region: REGION }, async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "인증이 필요합니다.");
+  const { code, force } = request.data || {};
+  const normalized = normalizeRecoveryCode(code);
+  if (!normalized || !/^SNB-[A-Z0-9]{4}-[A-Z0-9]{4}$/.test(normalized)) {
+    throw new HttpsError("invalid-argument", "복구 코드 형식이 올바르지 않습니다.");
+  }
+
+  const snap = await db.collection("users").where("recoveryCode", "==", normalized).limit(1).get();
+  if (snap.empty) throw new HttpsError("not-found", "복구 코드를 찾을 수 없습니다.");
+  const sourceDoc = snap.docs[0];
+  const targetUid = sourceDoc.id;
+  const uid = request.auth.uid;
+  if (targetUid === uid) throw new HttpsError("failed-precondition", "SELF_RECOVERY_CODE");
+
+  const userRef = db.collection("users").doc(uid);
+  const currentDoc = await userRef.get();
+  if (currentDoc.exists && !force) throw new HttpsError("already-exists", "EXISTING_DATA");
+
+  const cloned = { ...sourceDoc.data() };
+  cloned.clonedFrom = targetUid;
+  // 목적지의 stableId(=이 기기)를 유지.
+  if (currentDoc.exists && currentDoc.data().stableId) cloned.stableId = currentDoc.data().stableId;
+  else delete cloned.stableId;
+  delete cloned.migrated_to;
+  delete cloned.migrated_at;
+  delete cloned.recoveryCode; // 1회성 — 새 기기에서 재발급 가능.
+
+  await db.runTransaction(async (t) => {
+    t.set(userRef, cloned);
+    t.update(sourceDoc.ref, {
+      migrated_to: uid,
+      migrated_at: FieldValue.serverTimestamp(),
+      recoveryCode: FieldValue.delete(),
+    });
+  });
+
+  return { recovered: true, name: cloned.name || null, bestScore: cloned.bestScore || 0 };
+});
+
+/**
+ * recoverAccount — 콜드스타트마다 stableId로 같은-기기 재설치 자동 복구.
+ * 입력: { stableId }(iOS identifierForVendor / Android ANDROID_ID).
+ * ⚠️ 같은-기기 경로는 소스에 migrated_to를 찍지 않는다 — 식별자(stableId/recoveryCode)만
+ *    소스에서 제거해 stableId를 정확히 한 doc만 소유하게 한다. 안 그러면 재설치가
+ *    tombstone된 소스를 만나 신규계정으로 라우팅돼 진행을 잃는다. (플레이북 21 §2 M4)
+ */
+exports.recoverAccount = onCall({ region: REGION }, async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "인증이 필요합니다.");
+  const uid = request.auth.uid;
+  const { stableId } = request.data || {};
+  if (!stableId || typeof stableId !== "string" || stableId.length < 8) {
+    throw new HttpsError("invalid-argument", "stableId가 필요합니다.");
+  }
+
+  const userRef = db.collection("users").doc(uid);
+  const currentDoc = await userRef.get();
+  if (currentDoc.exists) {
+    if (!currentDoc.data().stableId) await userRef.set({ stableId }, { merge: true });
+    return { recovered: false, alreadyHadData: true };
+  }
+
+  const snap = await db.collection("users").where("stableId", "==", stableId).limit(1).get();
+  if (snap.empty) {
+    await userRef.set({ stableId, createdAt: FieldValue.serverTimestamp() }, { merge: true });
+    return { recovered: false, alreadyHadData: false };
+  }
+
+  const sourceDoc = snap.docs[0];
+  const sourceData = sourceDoc.data();
+  if (sourceData.migrated_to) {
+    // 소스가 코드로 다른 곳에 이전됨 — 새 계정으로 취급.
+    await userRef.set({ stableId, createdAt: FieldValue.serverTimestamp() }, { merge: true });
+    return { recovered: false, sourceLocked: true };
+  }
+
+  const cloned = { ...sourceData };
+  cloned.stableId = stableId;
+  cloned.clonedFrom = sourceDoc.id;
+  delete cloned.migrated_to;
+  delete cloned.migrated_at;
+  delete cloned.recoveryCode;
+
+  await db.runTransaction(async (t) => {
+    t.set(userRef, cloned);
+    // 같은-기기: tombstone 금지. 식별자만 제거해 stableId 단일 소유 + 재설치 멱등.
+    t.update(sourceDoc.ref, {
+      stableId: FieldValue.delete(),
+      recoveryCode: FieldValue.delete(),
+      superseded_by: uid,
+      superseded_at: FieldValue.serverTimestamp(),
+    });
+  });
+
+  return { recovered: true, name: cloned.name || null, bestScore: cloned.bestScore || 0 };
+});
+
+// ─── 크로스프로모 설치 보상 (서버 검증, 평생 상한) ─────────────
+// 형제 게임 설치 시 코인 보상. 보상액은 서버 상수(CROSSPROMO_REWARDS)가 결정 —
+// 클라는 gameId만 보낸다. 설치 신호는 스푸핑 가능하므로 방어를 겹친다:
+//   (a) 게임당 1회 멱등 (crossPromoClaimed)
+//   (b) 유저별 rate limit (lastCrossPromoClaim)
+//   (c) 계정 평생 상한 (crossPromoCoinsTotal) — 상한까지만 부분 지급
+// ⚠️ Snakeball 경제(코인/젬)는 localStorage라 서버가 잔액을 들고 있지 않다. 이 함수는
+//    "청구 자격"만 서버 권위로 판정하고 지급 코인 수를 반환 — 실제 지급은 클라가
+//    SB.addCoins로 로컬 반영한다(2048과 달리 코인 잔액을 서버가 안 가짐).
+const CROSSPROMO_REWARDS = {
+  mineta: 3,
+  pow2: 3,
+};
+const CROSSPROMO_LIFETIME_MAX_COINS = 15;   // 계정 평생 크로스프로모 코인 상한
+const CROSSPROMO_RATE_LIMIT_MS = 30 * 1000; // 연속 청구 throttle (lastCrossPromoClaim)
+
+exports.claimCrossPromoReward = onCall({ region: REGION, minInstances: 1 }, async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "인증이 필요합니다.");
+  }
+  const uid = request.auth.uid;
+  const { gameId } = request.data || {};
+  if (!gameId || typeof gameId !== "string") {
+    throw new HttpsError("invalid-argument", "gameId가 필요합니다.");
+  }
+
+  const reward = CROSSPROMO_REWARDS[gameId];
+  if (reward === undefined) {
+    throw new HttpsError("invalid-argument", "알 수 없는 크로스프로모 게임입니다.");
+  }
+
+  const ref = db.collection("users").doc(uid);
+
+  return db.runTransaction(async (t) => {
+    const doc = await t.get(ref);
+    const data = doc.exists ? doc.data() : {};
+    assertNotMigrated(data);
+
+    // (a) 게임당 1회, 영구 — 멱등.
+    const claimed = data.crossPromoClaimed || [];
+    if (claimed.includes(gameId)) {
+      throw new HttpsError("already-exists", "이미 받은 보상입니다.");
+    }
+
+    // (b) 유저별 rate limit (rapid-fire/자동화 완화).
+    const last = data.lastCrossPromoClaim;
+    const lastMs = last && last.toMillis ? last.toMillis() : 0;
+    if (lastMs && Date.now() - lastMs < CROSSPROMO_RATE_LIMIT_MS) {
+      throw new HttpsError("resource-exhausted", "잠시 후 다시 시도해주세요.");
+    }
+
+    // (c) 계정 평생 상한 — 상한까지만 부분 지급, 가득 차면 거부.
+    const spentTotal = data.crossPromoCoinsTotal || 0;
+    if (spentTotal >= CROSSPROMO_LIFETIME_MAX_COINS) {
+      throw new HttpsError("failed-precondition", "평생 보상 상한에 도달했습니다.");
+    }
+    const grant = Math.min(reward, CROSSPROMO_LIFETIME_MAX_COINS - spentTotal);
+
+    t.set(ref, {
+      crossPromoClaimed: [...claimed, gameId],
+      crossPromoCoinsTotal: spentTotal + grant,
+      lastCrossPromoClaim: FieldValue.serverTimestamp(),
+      createdAt: data.createdAt || FieldValue.serverTimestamp(),
+    }, { merge: true });
+
+    // 지급액만 반환 — 코인 잔액은 클라(localStorage)가 들고 있다.
+    return { reward: grant, gameId };
+  });
 });
 
 // ─── IAP 영수증 검증 ──────────────────────────────────────────
@@ -337,6 +575,9 @@ exports.verifyAndFulfillPurchase = onCall(
       if (msg === "UNSUPPORTED_PLATFORM") {
         throw new HttpsError("unimplemented", "지원하지 않는 플랫폼입니다.");
       }
+      if (msg === "ACCOUNT_MIGRATED") {
+        throw new HttpsError("failed-precondition", "복구된 계정입니다. 앱을 재시작해주세요.");
+      }
       if (msg === "MISSING_APP_STORE_CREDENTIALS"
         || msg === "MISSING_GOOGLE_PLAY_CREDENTIALS"
         || msg === "MISSING_TOSS_CREDENTIALS") {
@@ -345,7 +586,8 @@ exports.verifyAndFulfillPurchase = onCall(
       if (msg.startsWith("APP_STORE_VERIFICATION_FAILED")
         || msg.startsWith("GOOGLE_PLAY_INVALID_STATE")
         || msg.startsWith("TOSS_VERIFICATION_FAILED")
-        || msg.startsWith("TOSS_INVALID_STATE")) {
+        || msg.startsWith("TOSS_INVALID_STATE")
+        || msg.startsWith("NON_PRODUCTION_TRANSACTION")) {
         throw new HttpsError("permission-denied", "구매 검증에 실패했습니다.");
       }
       console.error("verifyAndFulfillPurchase error:", error);

@@ -14,6 +14,43 @@
 
 ---
 
+## 🟣 플레이북 적용 (2026-06-29, 이번 패스 — 코드 완료, 배포/액션 필요)
+
+`~/repos/LessonLearned`(20/21/30) 1:1 대조로 누락돼 있던 핵심 픽스를 적용했습니다.
+
+**보안/안정성 (배포 필요):**
+- **IAP environment 게이트** (`functions/iapVerification.js`) — Sandbox/Xcode/라이선스-테스트 영수증이 $0로 실재화를 발행하던 구멍을 막음. 비-Production은 `config/test_accounts` 화이트리스트에 든 UID만 허용. (플레이북 §9-4 A1)
+  - ⚠️ **테스트 결제하려면**: Firestore에서 `config/test_accounts` 문서에 `{ uids: ["<내 익명 UID>"] }`를 넣어야 Sandbox/TestFlight 구매가 지급됩니다. 안 넣으면 테스터 구매가 `permission-denied`로 거부됩니다(정상 동작). 출시 후엔 빼기.
+- **firestore.rules** — 서버 모더레이션 필드 `name`(+`bestScore`)을 클라 쓰기 화이트리스트에서 제거(욕설 닉네임이 리더보드로 새던 우회 차단). (§5)
+- **hosting 캐시 헤더**(`firebase.json`) — 진입 문서 `/`가 1시간 캐시돼 배포가 WebView에 안 닿던 함정 수정. (§30 §9)
+- **Firestore long-polling**(`index.html`) — WebView에서 리더보드 쿼리가 영영 hang하던 문제 + 8초 read 타임아웃. (§30 §9 / §21 P2.4)
+- 배포: `firebase deploy --only firestore:rules,hosting` (시크릿 불필요, 지금 가능) / `--only functions` (C의 시크릿 8개 설정 후).
+
+**게임 개선 (배포 필요):**
+- **광고 마스터 스위치** `ADS_ENABLED`(`index.html` 상단) — 광고 정지/심사 중이거나 실 광고 ID 없으면 `false`로 바꿔 보상형 광고 UI(부활/더블코인 ▶)를 전부 숨기고 코인·젬 폴백만 노출. (§21 §9-6)
+- **About 섹션**(설정) — Privacy / Terms / Support / 버전. iOS는 SafariVC·MailCompose 시트, Android는 브라우저·메일 인텐트, web/Toss는 새 탭·mailto 폴백. 법적 페이지는 `www.hodgepodge.studio/privacy.html|terms.html`, 문의 `support@hodgepodge.studio` (`index.html` `LEGAL` 상수에서 변경). **iOS/Android는 네이티브 핸들러를 추가했으니 재빌드 필요**.
+
+**New GAME Day-1 체크리스트 적용 (2차, 2026-06-29):**
+- **계정 복구** — `generateRecoveryCode`/`recoverByCode`/`recoverAccount` 추가(`functions/index.js`, `users` 컬렉션, `SNB-XXXX-XXXX`). 같은-기기 재설치는 stableId로 자동 복구, 새 기기는 코드로. 모든 grant/score/이름 op에 `migrated_to` tombstone 가드. 설정에 "Recovery Code"(발급+자동복사)·"Restore from Code"(입력+덮어쓰기 확인) 행. ⚠️ 코인/젬은 localStorage라 **복구는 리더보드 신원(이름/최고점)만** 이전.
+- **stableId 캡처** — 런치 시 `getDeviceId` 브리지로 IDFV/ANDROID_ID 캡처 → `recoverAccount`로 재설치 시 신원 유지(+유니크 유저 지표 기반).
+- **이모지 폰트 폴백** — `font-family`에 Apple/Segoe/Noto Color Emoji 추가(Android WebView tofu 방지).
+- **onTap** — 햅틱+throttle 래퍼를 메뉴/설정/상점/모달 버튼에 적용.
+- **minInstances:1** — `startRun`/`submitScore` 콜드스타트 제거. ⚠️ **always-on 인스턴스라 과금 발생**(원치 않으면 빼기). 배포 시 `--force` 필요할 수 있음.
+- **iOS 하드닝**(`WebView.swift`, **재빌드 필요**): `window.prompt` 텍스트입력 패널(없으면 닉네임/복구 입력이 조용히 무시됨), 오프라인 재시도 오버레이(2.1 리젝 방지), content-process 종료 시 리로드, **빌드타입 광고유닛**(Debug/TestFlight=테스트, App Store만 실광고 — self-click 정지 예방).
+
+**의도적 미적용 (Snakeball 설계상 N/A 또는 보류):**
+- **코인 서버권위(체크리스트 §2)** — Snakeball 경제는 단일플레이어 localStorage라 공유-서버 공격면이 없음(부정행위=자기 손해뿐). IAP는 이미 서버검증. 클라우드 세이브 도입 시에만 서버 경제로 전환.
+- **온보딩 튜토리얼(§7)** — 게임에 튜토리얼 스캐폴딩이 있으나 `gameState='tutorial'`이 어디서도 설정 안 돼 **죽은 코드**. 검증 안 된 튜토리얼을 첫-실행 경로에 켜면 소프트락 위험 → 실기기 QA 후 활성화 권장(또는 가벼운 첫-실행 힌트 오버레이로 교체).
+- **크로스프로모(§15/§16)** — 네트워크 기능(증폭기, §6): 콜드스타트(첫 코호트) 이후 도입이 맞음.
+  - ✅ **URL 스킴 등록 완료(2026-06-29)**: iOS `Info.plist`에 자체 스킴 `snakeball://`(CFBundleURLTypes) + 형제 조회 스킴 `mineta`/`pow2`(LSApplicationQueriesSchemes); Android `AndroidManifest.xml`에 형제 패키지 `<queries>`(`studio.hodgepodge.minefieldsweeper`/`pow2`). → **재빌드 필요**. (olympic은 당분간 미출시라 네트워크 전체에서 제거함.)
+  - 남은 작업: ① `hodgepodge.studio/games.json` Snakeball 엔트리 = `id:"snakeball"`, `scheme:"snakeball://"`, **`package:"studio.hodgepodge.snakeball"` 추가(Android 감지용)**, `web:"https://snakeball-game.web.app"` (현재 엔트리는 Pow2 복붙이라 교체). ② **형제 앱(Mineta/Pow2)이 각자 LSApplicationQueriesSchemes/`<queries>`에 snakeball/`studio.hodgepodge.snakeball`을 추가해 재빌드**해야 Snakeball이 감지됨. ③ Snakeball이 형제 게임 카드를 *보여주려면* 클라(코너카드+설정 목록)+서버(`claimCrossPromoReward`+`CROSSPROMO_REWARDS`) 포팅 필요(아직 미구현). 원하면 다음에 진행.
+
+**보류 (형 결정 대기):**
+- **다국어(i18n)** — 현재 영어 전용. Toss가 한국 플랫폼이라 **한국어는 가치가 큼**. 단 단일 HTML에 하드코딩 문자열이 많아 작업량/회귀위험 큼 + 3D라 시각 QA 필요. 할지 알려주면 en/ko부터 진행.
+- **복구 코드 / 클라우드 세이브** — 코인·젬이 localStorage라 복구는 리더보드 신원만 살림. 경제를 서버로 옮겨야 의미 있음(기존 "no-backend" 결정과 충돌). 결정 필요.
+
+---
+
 ## 🔵 형이 해야 하는 것
 
 ### A. 게임 제목 확정 ⚠️ (먼저)

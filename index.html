@@ -6,7 +6,7 @@
 <title>Snakeball</title>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
-html, body { width: 100%; height: 100%; overflow: hidden; background: #0a0a1a; font-family: 'Segoe UI', Arial, sans-serif; touch-action: none; }
+html, body { width: 100%; height: 100%; overflow: hidden; background: #0a0a1a; font-family: 'Segoe UI', Arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji'; touch-action: none; }
 canvas { display: block; width: 100%; height: 100%; }
 
 #ui-overlay {
@@ -35,6 +35,21 @@ canvas { display: block; width: 100%; height: 100%; }
 #tap-to-play:hover { background: rgba(99, 248, 207, 0.15); transform: scale(1.05); }
 @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.6; } }
 #best-score-display { color: #aaa; font-size: 14px; margin-top: 20px; }
+
+/* Cross-promo corner card (iOS only) */
+#xpromo-card {
+    position: absolute; right: 12px;
+    top: calc(max(14px, env(safe-area-inset-top)) + 44px);
+    width: 124px; padding: 14px 10px 12px; text-align: center; cursor: pointer;
+    background: rgba(38,31,92,0.96); border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 18px; box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+    z-index: 60; animation: xpFade 0.35s ease-out;
+}
+@keyframes xpFade { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+#xpromo-card .xp-emoji { font-size: 40px; line-height: 1; margin-top: 4px; }
+#xpromo-card .xp-name { color: #fff; font-size: 14px; font-weight: 800; margin-top: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#xpromo-card .xp-reward { position: absolute; top: 8px; left: 8px; background: var(--gold); color: #1a1a2e; font-size: 12px; font-weight: 800; padding: 2px 7px; border-radius: 11px; }
+#xpromo-card .xp-x { position: absolute; top: 2px; right: 8px; color: #fff; font-size: 18px; font-weight: 800; opacity: 0.7; padding: 4px 6px; }
 #sound-toggle {
     position: absolute; bottom: 20px; right: 20px; background: none; border: none;
     color: #fff; font-size: 24px; cursor: pointer; opacity: 0.7;
@@ -525,7 +540,15 @@ canvas { display: block; width: 100%; height: 100%; }
             <div class="setting-row" id="set-name-row" style="cursor:pointer">Nickname<span id="set-name-val" style="color:var(--mint);font-size:14px;font-weight:700">Anonymous</span></div>
             <div class="setting-row">Sound<div class="toggle on" id="set-sound"></div></div>
             <div class="setting-row">Haptics<div class="toggle on" id="set-haptics"></div></div>
-            <div class="setting-row" id="set-reset-row" style="cursor:pointer;border-bottom:none">Reset Progress<span style="color:#ff6b6b;font-size:13px">⟲</span></div>
+            <div class="setting-row" id="set-privacy-row" style="cursor:pointer">Privacy Policy<span style="color:#8a8aa8;font-size:16px">›</span></div>
+            <div class="setting-row" id="set-terms-row" style="cursor:pointer">Terms of Service<span style="color:#8a8aa8;font-size:16px">›</span></div>
+            <div class="setting-row" id="set-support-row" style="cursor:pointer">Support<span style="color:#8a8aa8;font-size:16px">›</span></div>
+            <div class="setting-row" id="xpromo-header" style="display:none;border-bottom:none;color:#8a8aa8;font-size:13px;padding-bottom:2px">More Games</div>
+            <div id="xpromo-more-games"></div>
+            <div class="setting-row" id="set-recovery-show" style="cursor:pointer">Recovery Code<span id="recovery-code-val" style="color:var(--mint);font-size:13px;font-weight:700">View ›</span></div>
+            <div class="setting-row" id="set-recovery-enter" style="cursor:pointer">Restore from Code<span style="color:#8a8aa8;font-size:16px">›</span></div>
+            <div class="setting-row" id="set-reset-row" style="cursor:pointer">Reset Progress<span style="color:#ff6b6b;font-size:13px">⟲</span></div>
+            <div class="setting-row" id="set-version-row" style="border-bottom:none;color:#8a8aa8;font-size:13px">Version<span id="set-version-val">v1.0</span></div>
         </div>
     </div>
 
@@ -573,6 +596,20 @@ canvas { display: block; width: 100%; height: 100%; }
 // ---------- Toss invite-a-friend reward module (set after registering in Toss console) ----------
 const TOSS_AD_GROUP_ID = '';            // Toss AdMob ad group id (from console)
 const TOSS_CONTACTS_VIRAL_MODULE_ID = '';
+
+// ---------- Ads master switch (single source of truth) ----------
+// 광고 전역 on/off. AdMob 계정이 정지/심사 중이거나 실제 광고 ID가 아직 없으면 false로
+// 출시 → 보상형 광고 UI(부활/더블코인 ▶버튼)를 전부 숨기고 코인/젬 폴백만 노출한다.
+// 죽은 광고 버튼은 신뢰를 깎고 App Store 2.1 리젝 위험. (플레이북 21 §9-6 / ios-launch-ads-off)
+const ADS_ENABLED = true;
+
+// ---------- App / legal info (About section) ----------
+const APP_VERSION = '1.0';
+const LEGAL = {
+    privacy: 'https://www.hodgepodge.studio/privacy.html',
+    terms: 'https://www.hodgepodge.studio/terms.html',
+    support: 'support@hodgepodge.studio',
+};
 
 // ---------- Persistence ----------
 const LS = window.localStorage;
@@ -678,6 +715,21 @@ function postNative(handler, action, data = {}) {
     }
 }
 
+// onTap — haptic + throttle wrapper for buttons. Null-safe. Prevents double-fire
+// on rapid taps and gives every button a tactile tap. (플레이북 30 §7)
+function onTap(el, cb, opts = {}) {
+    if (!el) return;
+    const { throttle = 300, haptic = true, hapticType = 'light' } = opts;
+    let last = 0;
+    el.addEventListener('click', (e) => {
+        const now = Date.now();
+        if (throttle > 0 && now - last < throttle) return;
+        last = now;
+        if (haptic) vibrate(hapticType);
+        cb(e);
+    });
+}
+
 function vibrate(type = 'light') {
     if (!state.settings.haptics) return;
     const patternMap = { light:10, medium:20, heavy:35, success:[10,40,10], error:[30,30,30] };
@@ -691,6 +743,39 @@ function vibrate(type = 'light') {
     } else if (navigator.vibrate) {
         navigator.vibrate(patternMap[type]);
     }
+}
+
+// ---------- Cross-promo install detection (native only) ----------
+// 형제 게임이 이 기기에 설치돼 있는지 질의한다. iOS=canOpenURL(scheme),
+// Android=PackageManager(package) — identifier는 호출자가 플랫폼에 맞게 넘긴다.
+// 콜백은 callId(installCheck:<n>)로 격리해 여러 게임 동시 질의가 안 섞인다. 3초
+// 타임아웃으로 네이티브가 무응답이어도 매달리지 않고 false. web/toss는 감지 불가 → false.
+let _installCheckCounter = 1;
+function isInstallDetectionAvailable() {
+    return platform === 'ios' || platform === 'android';
+}
+function isInstalled(identifier) {
+    if (!isInstallDetectionAvailable() || !identifier) return Promise.resolve(false);
+    return new Promise((resolve) => {
+        const callId = 'installCheck:' + (_installCheckCounter++);
+        let done = false;
+        const finish = (val) => {
+            if (done) return;
+            done = true;
+            delete bridgeCallbacks[callId];
+            resolve(val);
+        };
+        bridgeCallbacks[callId] = (data) => finish(!!(data && data.installed));
+        try {
+            if (platform === 'ios') {
+                postNative('installHandler', 'isInstalled', { scheme: identifier, callId });
+            } else {
+                // Android — native echoes via window.__bridgeCallbacks(callId, { installed }).
+                window.AndroidBridge.isInstalled(identifier, callId);
+            }
+        } catch (e) { finish(false); return; }
+        setTimeout(() => finish(false), 3000);
+    });
 }
 
 // ---------- Native leaderboards (iOS Game Center / Android Play Games) ----------
@@ -769,6 +854,31 @@ function showRewardedAd() {
         };
         postNative('adHandler', 'showRewardedAd', { customData: 'reward' });
     });
+}
+
+// Whether a rewarded ad can be offered right now — the single gate for showing
+// the ▶ revive / ▶ double-coins buttons. Flip ADS_ENABLED to hide them everywhere
+// and fall back to coins/gems. (플레이북 21 §9-6 — 죽은 광고 버튼 숨기기)
+function canShowRewardedAd() {
+    return ADS_ENABLED;
+}
+
+// ---------- In-app links & email (About section) ----------
+// 개인정보/약관/문의는 앱을 이탈하지 않고 네이티브 시트(SafariVC/MailCompose)로 연다.
+// 네이티브 핸들러가 없으면(web/toss) 새 탭/ mailto 로 폴백. (in-app-windows-no-external)
+function openExternal(url) {
+    if (platform === 'ios' || platform === 'android') {
+        postNative('linkHandler', 'openUrl', { url });
+    } else {
+        try { window.open(url, '_blank', 'noopener'); } catch (_) { location.href = url; }
+    }
+}
+function composeEmail(to) {
+    if (platform === 'ios' || platform === 'android') {
+        postNative('linkHandler', 'composeEmail', { to });
+    } else {
+        try { location.href = 'mailto:' + to; } catch (_) {}
+    }
 }
 
 // ---------- IAP ----------
@@ -1184,9 +1294,11 @@ function renderDaily() {
 function renderSettings() {
     const names = { ios:'iOS', android:'Android', toss:'Apps in Toss', web:'Web' };
     if ($('settings-platform')) $('settings-platform').textContent = 'Platform: ' + (names[platform] || platform);
+    if ($('set-version-val')) $('set-version-val').textContent = 'v' + APP_VERSION;
     if ($('set-name-val')) $('set-name-val').textContent = state.name || 'Anonymous';
     if ($('set-sound')) $('set-sound').classList.toggle('on', state.settings.sound);
     if ($('set-haptics')) $('set-haptics').classList.toggle('on', state.settings.haptics);
+    renderXpromoGames();
 }
 
 // ============================================================
@@ -1210,6 +1322,7 @@ const LB_REGION = 'asia-northeast3';
 let lbAvailable = false;
 let fbAuth = null, fbDb = null, fbFns = null;
 let myUid = null;
+let myStableId = load('sb_stableid', null);  // iOS IDFV / Android ANDROID_ID
 let sessionToken = null;       // startRun() 으로 발급, submitScore() 후 1회성으로 null
 let myStanding = null;         // { best, rank } — 마지막 제출 결과
 let whenAuthReady;             // Promise<uid|null>
@@ -1219,6 +1332,16 @@ try {
         const fbApp = firebase.initializeApp(firebaseConfig);
         fbAuth = firebase.auth();
         fbDb = firebase.firestore();
+        // WebView(WKWebView/Android WebView/Toss RN)에서 기본 WebChannel 전송이
+        // 간헐적으로 영영 안 끝나(쿼리 무한 hang) 리더보드 스피너가 안 멈춘다.
+        // → 네이티브 웹뷰는 long-polling 강제, 일반 웹만 auto-detect (둘은 상호배타).
+        //   반드시 첫 쿼리 전에, settings()로 한 번만. (플레이북 30 §9 / 21 P2.4)
+        try {
+            const nativeWebView = platform === 'ios' || platform === 'android' || platform === 'toss';
+            fbDb.settings(nativeWebView
+                ? { experimentalForceLongPolling: true, merge: true }
+                : { experimentalAutoDetectLongPolling: true, merge: true });
+        } catch (e) { /* settings는 한 번만 — 이미 설정됐으면 무시 */ }
         // compat: 리전은 app.functions(region) 으로 지정 (firebase.functions(region) 아님).
         fbFns = fbApp.functions(LB_REGION);
         lbAvailable = true;
@@ -1242,6 +1365,74 @@ whenAuthReady = new Promise((resolve) => {
         clearTimeout(timer); done(null);
     }
 });
+
+// ---------- Account recovery (stableId auto + recovery code) ----------
+// stableId(iOS IDFV / Android ANDROID_ID)를 캡처해 같은-기기 재설치 시 리더보드
+// 신원(name/bestScore)을 자동 복구한다. 네이티브에서만 동작(web/toss는 no-op).
+// (플레이북 20 §1, 21 §2) ⚠️ 코인/젬은 localStorage라 복구 대상이 아님.
+function captureStableIdAndRecover() {
+    if (platform !== 'ios' && platform !== 'android') return;
+    bridgeCallbacks['deviceId'] = async (data) => {
+        delete bridgeCallbacks['deviceId'];
+        const id = data?.id;
+        if (!id || typeof id !== 'string' || id.length < 8) return;
+        myStableId = id; save('sb_stableid', id);
+        if (!lbAvailable || !fbFns) return;
+        try {
+            const uid = await whenAuthReady;
+            if (!uid) return;
+            const res = await fbFns.httpsCallable('recoverAccount')({ stableId: id });
+            if (res?.data?.recovered && res.data.name) {
+                state.name = res.data.name; save('sb_name', res.data.name);
+                refreshHUD(); renderLeaderboardName();
+            }
+        } catch (e) { /* 무시 */ }
+    };
+    postNative('authHandler', 'getDeviceId');
+}
+captureStableIdAndRecover();
+
+// showRecoveryCode — 복구 코드 발급 + 자동 클립보드 복사 + 표시.
+async function showRecoveryCode() {
+    if (!lbAvailable || !fbFns) { toast('복구 기능을 사용할 수 없어요'); return; }
+    try {
+        const uid = await whenAuthReady;
+        if (!uid) { toast('복구 기능을 사용할 수 없어요'); return; }
+        const res = await fbFns.httpsCallable('generateRecoveryCode')();
+        const code = res?.data?.code;
+        if (!code) { toast('코드 생성 실패'); return; }
+        let copied = false;
+        try { await navigator.clipboard.writeText(code); copied = true; } catch (_) {}
+        const el = $('recovery-code-val'); if (el) el.textContent = code;
+        alert((copied ? '복구 코드가 복사되었어요:\n\n' : '복구 코드:\n\n') + code +
+            '\n\n새 기기에서 이 코드로 복구할 수 있어요. 안전한 곳에 보관하세요!');
+    } catch (e) { toast('코드 생성 실패'); }
+}
+
+// recoverFromCode — 코드 입력 → 소스 계정 이전 (force 확인 플로우 포함).
+async function recoverFromCode() {
+    if (!lbAvailable || !fbFns) { toast('복구 기능을 사용할 수 없어요'); return; }
+    const code = window.prompt('복구 코드 입력 (SNB-XXXX-XXXX)', '');
+    if (!code) return;
+    const run = async (force) => {
+        try {
+            const res = await fbFns.httpsCallable('recoverByCode')({ code, force });
+            if (res?.data?.recovered) {
+                if (res.data.name) { state.name = res.data.name; save('sb_name', res.data.name); }
+                toast('복구 완료! 새로고침합니다…');
+                setTimeout(() => location.reload(), 1000);
+            }
+        } catch (e) {
+            const c = (e?.code || ''), m = (e?.message || '');
+            if (c.includes('already-exists')) {
+                if (confirm('이미 이 기기에 데이터가 있어요. 덮어쓰고 복구할까요?')) run(true);
+            } else if (c.includes('not-found')) toast('코드를 찾을 수 없어요');
+            else if (m.includes('SELF_RECOVERY')) toast('같은 계정의 코드예요');
+            else toast('복구에 실패했어요');
+        }
+    };
+    run(false);
+}
 
 // startRun — 게임 시작 시 세션 발급 (fire-and-forget, 에러 무시).
 async function startRun() {
@@ -1270,12 +1461,23 @@ async function submitScore(score) {
     } catch (e) { /* 백엔드 미배포/오프라인 등 — 조용히 무시 */ }
 }
 
+// Firestore read엔 자체 타임아웃이 없다 — hang한 read는 resolve/reject를 안 해
+// 스피너가 영원히 돈다. Promise.race로 타임아웃을 직접 씌워 catch에서 []로 떨어지게.
+function lbWithTimeout(promise, ms, label) {
+    let timer;
+    const timeout = new Promise((_, rej) => {
+        timer = setTimeout(() => rej(new Error((label || 'firestore') + ' timed out')), ms);
+    });
+    return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
 // fetchLeaderboard — 글로벌 top-N. 실패 시 [] 반환.
 async function fetchLeaderboard(n = 50) {
     if (!lbAvailable || !fbDb) return [];
     try {
-        const snap = await fbDb.collection('leaderboard_global')
-            .orderBy('score', 'desc').limit(n).get();
+        const snap = await lbWithTimeout(
+            fbDb.collection('leaderboard_global').orderBy('score', 'desc').limit(n).get(),
+            8000, 'leaderboard');
         return snap.docs.map(d => {
             const v = d.data() || {};
             return { uid: v.uid || d.id, name: v.name || 'Anonymous', score: v.score || 0 };
@@ -1403,6 +1605,283 @@ async function promptName() {
     if (clean) { toast('닉네임 설정 완료!'); renderSettings(); renderLeaderboardName(); }
 }
 
+// ============================================================
+// CROSS-PROMOTION (house ads for our other Hodgepodge games)
+//
+// Loads a shared remote game list, filters to what makes sense for THIS
+// platform/user, and drives two surfaces:
+//   1. a small dismissible corner card on the main menu (iOS only)
+//   2. a "More Games" list in Settings (all platforms)
+// Install reward: tapping a game arms it; on returning to the app we re-check
+// install state and claim a server-validated coin reward (once per game).
+// Fail-silent everywhere — any error behaves as if there are no games, so the
+// menu/settings are never blocked or broken by this feature.
+//
+// ⚠️ Snakeball 경제(코인/젬)는 localStorage라 서버가 잔액을 들고 있지 않다. 서버
+//    함수(claimCrossPromoReward)는 "청구 자격"만 권위 판정(게임당 1회·rate limit·
+//    평생 상한)하고 지급 코인 수를 반환 — 실제 지급은 클라가 SB.addCoins로 로컬 반영.
+// ============================================================
+const XP_CONFIG_URL = 'https://www.hodgepodge.studio/games.json';
+const XP_CLAIMED_KEY = 'sb_xpromo_claimed';   // gameIds 이미 보상 받음
+const XP_BANNER_KEY = 'sb_xpromo_banner';     // { lastShownTs, shownCount, dismissed:{[id]:ts} }
+const XP_ARMED_KEY = 'sb_xpromo_armed';       // { [gameId]: { identifier, armedTs } }
+const XP_SEEN_KEY = 'sb_xpromo_seen';         // gameIds 사용자가 탭/닫음 (배너 재노출 안 함)
+const XP_LAUNCH_KEY = 'sb_xpromo_launches';   // 메뉴 진입 횟수 — 신규 유저 배너 게이트
+const XP_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+const XP_ARM_TTL_MS = 14 * 24 * 60 * 60 * 1000;
+const XP_MIN_LAUNCHES_FOR_BANNER = 3;
+// EXPERIMENT: 더미 데이터로 UX 확인 중엔 매번 노출. 실제 주간 cadence는 false.
+const XP_EXPERIMENT_ALWAYS_SHOW = false;
+// 우리 자신은 절대 프로모하지 않는다.
+const XP_SELF_IDS = new Set(['snakeball']);
+
+let _xpConfigPromise = null;
+function _xpLoad() {
+    if (!_xpConfigPromise) {
+        _xpConfigPromise = fetch(XP_CONFIG_URL, { cache: 'no-cache' })
+            .then(r => (r.ok ? r.json() : Promise.reject(new Error('bad status'))))
+            .catch(() => ({ games: [] }));
+    }
+    return _xpConfigPromise;
+}
+
+// 이 빌드에서 따라갈 설치 식별자: iOS=scheme, Android=package. 그 외엔 null.
+function _xpInstallId(game) {
+    if (!game) return null;
+    if (platform === 'android') return game.package || null;
+    return game.scheme || null;
+}
+
+async function _xpInstalledSet(games) {
+    if (!isInstallDetectionAvailable()) return new Set();
+    const results = await Promise.all((games || []).map(async (g) => {
+        const id = g.installId;
+        return id && (await isInstalled(id)) ? id : null;
+    }));
+    return new Set(results.filter(Boolean));
+}
+
+function _xpClaimed() { return new Set(load(XP_CLAIMED_KEY, [])); }
+function _xpSeen() { return new Set(load(XP_SEEN_KEY, [])); }
+
+// 이 플랫폼에서 쓸 수 있는, 우리가 아닌, 아직 설치 안 된 게임들. (claimed/seen 게임도
+// Settings 목록엔 디렉터리로 남지만 보상 배너엔 안 뜬다.)
+async function _xpEligibleGames() {
+    const cfg = await _xpLoad();
+    const claimed = _xpClaimed();
+    const candidates = (cfg.games || []).filter(g =>
+        g && g.id && !XP_SELF_IDS.has(String(g.id).toLowerCase()) &&
+        g.platforms && g.platforms[platform]
+    ).map(g => ({
+        ...g,
+        link: g.platforms[platform],
+        installId: _xpInstallId(g),
+        reward: g.reward || 0,
+        rewarded: (g.reward || 0) > 0 && !claimed.has(g.id),
+    }));
+    const installed = await _xpInstalledSet(candidates);
+    return candidates.filter(g => !installed.has(g.installId));
+}
+
+function _xpBannerState() { return load(XP_BANNER_KEY, { lastShownTs: 0, shownCount: 0, dismissed: {} }); }
+
+// 코너 카드용 게임 하나 고르기(또는 null). 주간 cadence + launch 게이트 + seen/claimed/
+// dismissed 존중. iOS 전용.
+async function _xpPickBannerGame() {
+    if (!XP_EXPERIMENT_ALWAYS_SHOW && platform !== 'ios') return null;
+    if (!XP_EXPERIMENT_ALWAYS_SHOW && _xpLaunchCount() < XP_MIN_LAUNCHES_FOR_BANNER) return null;
+    const st = _xpBannerState();
+    if (!XP_EXPERIMENT_ALWAYS_SHOW && Date.now() - st.lastShownTs < XP_WEEK_MS) return null;
+    const claimed = _xpClaimed();
+    const seen = _xpSeen();
+    const games = (await _xpEligibleGames()).filter(g =>
+        !claimed.has(g.id) && !seen.has(g.id) &&
+        (XP_EXPERIMENT_ALWAYS_SHOW || Date.now() - (st.dismissed[g.id] || 0) >= XP_WEEK_MS)
+    );
+    if (!games.length) return null;
+    const idx = (st.shownCount || 0) % games.length;
+    return games[idx];
+}
+
+function _xpMarkBannerShown() {
+    const st = _xpBannerState();
+    st.lastShownTs = Date.now();
+    st.shownCount = (st.shownCount || 0) + 1;
+    save(XP_BANNER_KEY, st);
+}
+function _xpDismissBanner(gameId) {
+    const st = _xpBannerState();
+    st.dismissed = st.dismissed || {};
+    st.dismissed[gameId] = Date.now();
+    save(XP_BANNER_KEY, st);
+}
+function _xpLaunchCount() { return Number(load(XP_LAUNCH_KEY, 0)) || 0; }
+function _xpBumpLaunchCount() { const n = _xpLaunchCount() + 1; save(XP_LAUNCH_KEY, n); return n; }
+
+function _xpMarkSeen(gameId) {
+    if (!gameId) return;
+    const seen = load(XP_SEEN_KEY, []);
+    if (!seen.includes(gameId)) { seen.push(gameId); save(XP_SEEN_KEY, seen); }
+}
+
+// armed: 게임을 탭해 설치하러 보냄 → 복귀 시 설치 확인 후 보상. armedTs로 TTL 관리.
+function _xpArm(gameId, identifier) {
+    if (!gameId || !identifier) return;
+    const armed = load(XP_ARMED_KEY, {}) || {};
+    armed[gameId] = { identifier, armedTs: Date.now() };
+    save(XP_ARMED_KEY, armed);
+}
+function _xpGetArmed() {
+    const armed = load(XP_ARMED_KEY, {}) || {};
+    const now = Date.now();
+    let changed = false;
+    for (const id of Object.keys(armed)) {
+        const a = armed[id];
+        if (!a || !a.armedTs || now - a.armedTs > XP_ARM_TTL_MS) { delete armed[id]; changed = true; }
+    }
+    if (changed) save(XP_ARMED_KEY, armed);
+    return armed;
+}
+function _xpClearArmed(gameId) {
+    const armed = load(XP_ARMED_KEY, {}) || {};
+    if (armed[gameId]) { delete armed[gameId]; save(XP_ARMED_KEY, armed); }
+}
+function _xpMarkClaimedLocal(gameId) {
+    if (!gameId) return;
+    const claimed = load(XP_CLAIMED_KEY, []);
+    if (!claimed.includes(gameId)) { claimed.push(gameId); save(XP_CLAIMED_KEY, claimed); }
+}
+
+// 서버 권위 청구. 보상액은 서버가 결정 — 우리는 gameId만 보낸다. 성공 시 reward 반환.
+async function claimCrossPromoRewardServer(gameId) {
+    if (!lbAvailable || !fbFns) return { success: false, offline: true };
+    try {
+        const uid = await whenAuthReady;
+        if (!uid) return { success: false, offline: true };
+        const res = await fbFns.httpsCallable('claimCrossPromoReward')({ gameId });
+        return { success: true, reward: res?.data?.reward || 0 };
+    } catch (e) {
+        const c = e?.code || '';
+        if (c.includes('already-exists')) return { success: false, alreadyClaimed: true };
+        if (c.includes('resource-exhausted')) return { success: false, rateLimited: true };
+        if (c.includes('failed-precondition') || c.includes('invalid-argument')) return { success: false, notEligible: true };
+        return { success: false, error: true };
+    }
+}
+
+// 복귀 시 armed 게임들을 재확인하고, 설치된 것만 1회 청구한다. resume마다 호출해도
+// 안전(재진입 가드 + 전부 fail-silent).
+let _xpResumeRunning = false;
+async function xpromoOnResume() {
+    if (_xpResumeRunning) return;
+    if (!isInstallDetectionAvailable()) return;
+    const armed = _xpGetArmed();
+    const ids = Object.keys(armed);
+    if (!ids.length) return;
+    _xpResumeRunning = true;
+    try {
+        for (const gameId of ids) {
+            const identifier = armed[gameId] && armed[gameId].identifier;
+            if (!identifier) { _xpClearArmed(gameId); continue; }
+            let inst = false;
+            try { inst = await isInstalled(identifier); } catch (e) { inst = false; }
+            if (!inst) continue;
+            const result = await claimCrossPromoRewardServer(gameId);
+            if (result.success) {
+                _xpMarkClaimedLocal(gameId);
+                _xpClearArmed(gameId);
+                if (result.reward > 0) {
+                    addCoins(result.reward, true);   // 보상 토스트는 아래에서 직접
+                    vibrate('success');
+                    toast('🎉 설치 보상 +' + result.reward + ' 🪙');
+                    refreshHUD();
+                }
+                renderXpromoGames();
+            } else if (result.alreadyClaimed || result.notEligible) {
+                _xpClearArmed(gameId);   // 재시도 의미 없음 — 정리
+            }
+            // 일시적(offline/rateLimited/error): armed 유지, 다음 resume에 재시도.
+        }
+    } finally { _xpResumeRunning = false; }
+}
+
+// 앱이 다시 보이게 될 때(App Store/사파리 시트에서 복귀) onResume 실행.
+function xpromoListen() {
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') xpromoOnResume();
+    });
+    window.addEventListener('focus', () => xpromoOnResume());
+}
+
+// 공통 탭 핸들러: seen 처리 + arm + 외부(스토어) 링크 열기.
+function _xpOpenGame(gameId, link, installId) {
+    if (!gameId || !link) return;
+    _xpMarkSeen(gameId);
+    _xpArm(gameId, installId);
+    openExternal(link);
+}
+
+// ----- Settings "More Games" 목록 (전 플랫폼) -----
+async function renderXpromoGames() {
+    const host = $('xpromo-more-games');
+    const header = $('xpromo-header');
+    if (!host) return;
+    let games = [];
+    try { games = await _xpEligibleGames(); } catch (e) { games = []; }
+    if (!games.length) {
+        host.innerHTML = '';
+        if (header) header.style.display = 'none';
+        return;
+    }
+    if (header) header.style.display = '';
+    host.innerHTML = games.map(g =>
+        `<div class="setting-row xpromo-game" data-id="${escapeHtml(g.id)}" data-link="${escapeHtml(g.link)}" data-install="${escapeHtml(g.installId || '')}" style="cursor:pointer">` +
+            `<span style="display:flex;align-items:center;gap:10px;min-width:0"><span style="font-size:20px">${g.emoji || '🎮'}</span><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(g.name || g.id)}</span></span>` +
+            (g.rewarded && g.reward > 0
+                ? `<span style="color:var(--gold);font-size:13px;font-weight:800;flex-shrink:0">+${g.reward} 🪙</span>`
+                : `<span style="color:#8a8aa8;font-size:16px;flex-shrink:0">›</span>`) +
+        `</div>`
+    ).join('');
+    host.querySelectorAll('.xpromo-game').forEach(el => onTap(el, () =>
+        _xpOpenGame(el.dataset.id, el.dataset.link, el.dataset.install)));
+}
+
+// ----- Main-menu 코너 카드 (iOS only) -----
+async function maybeShowXpromoCard() {
+    try {
+        const game = await _xpPickBannerGame();
+        if (!game) return;
+        buildXpromoCard(game);
+        _xpMarkBannerShown();
+    } catch (e) { /* fail-silent — 프로모가 메뉴를 깨면 안 된다 */ }
+}
+function buildXpromoCard(game) {
+    if ($('xpromo-card')) return;
+    const menu = $('main-menu');
+    if (!menu) return;
+    const card = document.createElement('div');
+    card.id = 'xpromo-card';
+    card.innerHTML =
+        `<div class="xp-x" id="xpromo-x">✕</div>` +
+        (game.rewarded && game.reward > 0 ? `<div class="xp-reward">+${game.reward} 🪙</div>` : '') +
+        `<div class="xp-emoji">${game.emoji || '🎮'}</div>` +
+        `<div class="xp-name">${escapeHtml(game.name || game.id)}</div>`;
+    menu.appendChild(card);
+    card.addEventListener('click', (e) => {
+        if (e.target && e.target.id === 'xpromo-x') return; // X는 따로 처리
+        vibrate('light');
+        _xpOpenGame(game.id, game.link, game.installId);
+    });
+    const x = $('xpromo-x');
+    if (x) x.addEventListener('click', (e) => {
+        e.stopPropagation();
+        vibrate('light');
+        _xpMarkSeen(game.id);
+        _xpDismissBanner(game.id);
+        card.remove();
+    });
+}
+
 // ---------- Wiring ----------
 function applySkinHook() { if (window.__applySkin) window.__applySkin(); }
 
@@ -1412,40 +1891,55 @@ function wire() {
     renderPowerupRow();
     updateBadges();
 
-    $('coins-pill').onclick = () => openShop('store');
-    $('gems-pill').onclick = () => openShop('store');
-    $('btn-shop').onclick = () => openShop('skins');
-    $('btn-leaderboard').onclick = () => openLeaderboard();
-    $('btn-missions').onclick = () => { renderMissions(); $('missions-modal').classList.add('open'); };
-    $('btn-daily').onclick = () => { renderDaily(); $('daily-modal').classList.add('open'); };
-    $('btn-settings').onclick = () => { renderSettings(); $('settings-modal').classList.add('open'); };
+    // Menu / settings buttons get haptic + throttle via onTap. (플레이북 30 §7)
+    onTap($('coins-pill'), () => openShop('store'));
+    onTap($('gems-pill'), () => openShop('store'));
+    onTap($('btn-shop'), () => openShop('skins'));
+    onTap($('btn-leaderboard'), () => openLeaderboard());
+    onTap($('btn-missions'), () => { renderMissions(); $('missions-modal').classList.add('open'); });
+    onTap($('btn-daily'), () => { renderDaily(); $('daily-modal').classList.add('open'); });
+    onTap($('btn-settings'), () => { renderSettings(); $('settings-modal').classList.add('open'); });
 
     document.querySelectorAll('[data-shop-tab]').forEach(t =>
-        t.onclick = () => { shopTab = t.dataset.shopTab; renderShop(); });
+        onTap(t, () => { shopTab = t.dataset.shopTab; renderShop(); }));
     document.querySelectorAll('[data-close]').forEach(b =>
-        b.onclick = () => b.closest('.modal-backdrop').classList.remove('open'));
+        onTap(b, () => b.closest('.modal-backdrop').classList.remove('open')));
+    // Backdrop dismiss stays a plain listener — no haptic/throttle. (30 §7)
     document.querySelectorAll('.modal-backdrop').forEach(bd =>
         bd.onclick = (e) => { if (e.target === bd) bd.classList.remove('open'); });
 
-    $('daily-claim').onclick = () => {
+    onTap($('daily-claim'), () => {
         if (dailyAvailable()) claimDaily();
         else $('daily-modal').classList.remove('open');   // already claimed → just close
-    };
-    $('set-sound').onclick = () => { state.settings.sound = !state.settings.sound; persist(); renderSettings(); if (window.__setSound) window.__setSound(state.settings.sound); };
-    $('set-haptics').onclick = () => { state.settings.haptics = !state.settings.haptics; persist(); renderSettings(); };
-    $('set-name-row').onclick = () => promptName();
-    $('set-reset-row').onclick = () => {
+    });
+    onTap($('set-sound'), () => { state.settings.sound = !state.settings.sound; persist(); renderSettings(); if (window.__setSound) window.__setSound(state.settings.sound); });
+    onTap($('set-haptics'), () => { state.settings.haptics = !state.settings.haptics; persist(); renderSettings(); });
+    onTap($('set-name-row'), () => promptName());
+    onTap($('set-privacy-row'), () => openExternal(LEGAL.privacy));
+    onTap($('set-terms-row'), () => openExternal(LEGAL.terms));
+    onTap($('set-support-row'), () => composeEmail(LEGAL.support));
+    onTap($('set-recovery-show'), () => showRecoveryCode());
+    onTap($('set-recovery-enter'), () => recoverFromCode());
+    onTap($('set-reset-row'), () => {
         if (confirm('Reset ALL progress, coins, gems and unlocks? This cannot be undone.')) {
             ['sb_coins','sb_gems','sb_skin','sb_owned','sb_removeads','sb_powerups','sb_armed','sb_daily','sb_missions','sb_stats'].forEach(k => LS.removeItem(k));
             location.reload();
         }
-    };
+    });
 
     // Auto-pop daily reward once per day on first load
     if (dailyAvailable() && state.daily.last !== '') {
         // returning player — surface the daily
         setTimeout(() => { renderDaily(); $('daily-modal').classList.add('open'); }, 600);
     }
+
+    // Cross-promo: count this menu entry, watch for install returns, populate the
+    // Settings directory, and (iOS) maybe show the corner card after a beat.
+    _xpBumpLaunchCount();
+    xpromoListen();
+    xpromoOnResume();
+    renderXpromoGames();
+    setTimeout(maybeShowXpromoCard, 900);
 }
 
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', wire);
@@ -1456,6 +1950,10 @@ window.SB = {
     platform,
     state,
     showRewardedAd,
+    canShowRewardedAd,
+    openExternal, composeEmail,
+    APP_VERSION, LEGAL,
+    onTap,
     vibrate,
     addCoins, addGems, spendGems, spendCoins,
     activeSkin,
@@ -2602,7 +3100,10 @@ function showReviveScreen() {
     const gemBtn = document.getElementById('revive-gem');
     gemBtn.disabled = (window.SB && SB.state.gems < gemCost);
     // Rewarded revive stays available even for "remove forced ads" buyers —
-    // it's opt-in, not a forced interstitial.
+    // it's opt-in, not a forced interstitial. But hide it entirely when ads are
+    // off/unavailable so there's no dead button — gem revive remains. (21 §9-6)
+    const adBtn = document.getElementById('revive-ad');
+    if (adBtn) adBtn.style.display = (window.SB && SB.canShowRewardedAd()) ? '' : 'none';
 
     gameUI.style.display = 'none';
     touchAreaEl.style.display = 'none';
@@ -3137,7 +3638,8 @@ function finalizeGameOver() {
     // Double-coins button setup
     const dbl = document.getElementById('double-coins');
     dbl.disabled = false;
-    dbl.style.display = (lastRunBaseCoins > 0) ? '' : 'none';
+    // Hide double-coins when there are no base coins OR ads are off/unavailable. (21 §9-6)
+    dbl.style.display = (lastRunBaseCoins > 0 && window.SB && SB.canShowRewardedAd()) ? '' : 'none';
     dbl.innerHTML = '▶ DOUBLE 🪙 (+' + lastRunBaseCoins + ')';
 
     // Delay showing result screen (let the throw animation play)

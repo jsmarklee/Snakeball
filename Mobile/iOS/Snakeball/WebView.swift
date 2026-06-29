@@ -1,7 +1,21 @@
 import SwiftUI
+import UIKit
 import WebKit
 import StoreKit
 import GoogleMobileAds
+import SafariServices
+import MessageUI
+
+/// Debug + TestFlight (sandboxReceipt) serve Google TEST ad units; only real App
+/// Store installs request live units → no self-click "invalid activity" risk during
+/// QA, and never a dead live-ad request from a flagged build. (30 §5, 21 §9-5)
+var isInternalAdBuild: Bool {
+    #if DEBUG
+    return true
+    #else
+    return Bundle.main.appStoreReceiptURL?.lastPathComponent == "sandboxReceipt"
+    #endif
+}
 
 /// WKUserContentController.add() retains the handler strongly, creating a retain
 /// cycle. This weak wrapper avoids a crash when the web content process dies.
@@ -29,12 +43,15 @@ struct WebView: UIViewRepresentable {
         ucc.add(weakDelegate, name: "authHandler")
         ucc.add(weakDelegate, name: "iapHandler")
         ucc.add(weakDelegate, name: "gameHandler")
+        ucc.add(weakDelegate, name: "linkHandler")
+        ucc.add(weakDelegate, name: "installHandler")
 
         config.userContentController = ucc
         config.allowsInlineMediaPlayback = true
 
         let webView = WKWebView(frame: .zero, configuration: config)
         webView.uiDelegate = context.coordinator
+        webView.navigationDelegate = context.coordinator
         webView.isOpaque = false
         webView.backgroundColor = UIColor(red: 0.04, green: 0.04, blue: 0.10, alpha: 1)
         webView.scrollView.backgroundColor = UIColor(red: 0.04, green: 0.04, blue: 0.10, alpha: 1)
@@ -67,12 +84,15 @@ struct WebView: UIViewRepresentable {
         c.removeScriptMessageHandler(forName: "authHandler")
         c.removeScriptMessageHandler(forName: "iapHandler")
         c.removeScriptMessageHandler(forName: "gameHandler")
+        c.removeScriptMessageHandler(forName: "linkHandler")
+        c.removeScriptMessageHandler(forName: "installHandler")
         coordinator.webView = nil
     }
 
-    class Coordinator: NSObject, WKScriptMessageHandler, WKUIDelegate {
+    class Coordinator: NSObject, WKScriptMessageHandler, WKUIDelegate, WKNavigationDelegate, MFMailComposeViewControllerDelegate {
         var parent: WebView
         weak var webView: WKWebView?
+        private var retryOverlay: UIView?
         private var rewardedAdManager: RewardedAdManager?
         private var interstitialAdManager: InterstitialAdManager?
 
@@ -96,8 +116,140 @@ struct WebView: UIViewRepresentable {
             case "authHandler": handleAuth(action: action)
             case "iapHandler": handleIAP(action: action, body: body)
             case "gameHandler": handleGame(action: action, body: body)
+            case "linkHandler": handleLink(action: action, body: body)
+            case "installHandler": handleIsInstalled(body: body)
             default: break
             }
+        }
+
+        // MARK: - Cross-promo install detection (canOpenURL)
+        // 형제 게임이 설치돼 있는지 보고한다(크로스프로모 설치 보상). 질의하는 scheme은
+        // Info.plist의 LSApplicationQueriesSchemes에 선언돼 있어야 canOpenURL이 동작한다
+        // (없으면 항상 false). 결과는 callId로 키된 JS 콜백 레지스트리로 회신해 여러 게임
+        // 동시 질의가 안 섞인다. callId는 JS에서 "installCheck:<n>"로 생성 — JS 문자열
+        // 인터폴레이션 전에 영숫자 + ':'만 허용해 인젝션을 막는다.
+        private func handleIsInstalled(body: [String: Any]) {
+            let scheme = body["scheme"] as? String ?? ""
+            let callId = body["callId"] as? String ?? ""
+            guard !callId.isEmpty,
+                  callId.allSatisfy({ $0.isLetter || $0.isNumber || $0 == ":" }) else { return }
+            var s = scheme
+            if !s.contains("://") { s += "://" }
+            DispatchQueue.main.async { [weak self] in
+                var installed = false
+                if let url = URL(string: s) {
+                    installed = UIApplication.shared.canOpenURL(url)
+                }
+                self?.safeEvaluateJavaScript("window.__bridgeCallbacks('\(callId)', { installed: \(installed) });")
+            }
+        }
+
+        // MARK: - In-app links & email (About section)
+        // Privacy/Terms open in an SFSafariViewController sheet; Support opens an
+        // MFMailComposeViewController sheet — both stay inside the app, never the
+        // system browser/Mail. (in-app-windows-no-external memory)
+
+        private func handleLink(action: String, body: [String: Any]) {
+            DispatchQueue.main.async {
+                guard let rootVC = self.getRootViewController() else { return }
+                switch action {
+                case "openUrl":
+                    guard let urlStr = body["url"] as? String, let url = URL(string: urlStr) else { return }
+                    if url.scheme == "http" || url.scheme == "https" {
+                        let safari = SFSafariViewController(url: url)
+                        rootVC.present(safari, animated: true)
+                    } else {
+                        UIApplication.shared.open(url)
+                    }
+                case "composeEmail":
+                    let to = body["to"] as? String ?? ""
+                    if MFMailComposeViewController.canSendMail() {
+                        let mail = MFMailComposeViewController()
+                        mail.mailComposeDelegate = self
+                        mail.setToRecipients([to])
+                        mail.setSubject("Snakeball Support")
+                        rootVC.present(mail, animated: true)
+                    } else if let url = URL(string: "mailto:\(to)") {
+                        UIApplication.shared.open(url)
+                    }
+                default:
+                    break
+                }
+            }
+        }
+
+        func mailComposeController(_ controller: MFMailComposeViewController,
+                                   didFinishWith result: MFMailComposeResult, error: Error?) {
+            controller.dismiss(animated: true)
+        }
+
+        // MARK: - WKNavigationDelegate (offline retry overlay + content-process recovery)
+        // A remote-URL WebView shows a black screen with no network — App Store
+        // reviewers test in airplane mode → near-certain 2.1 rejection. (30 §1-5)
+
+        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            hideRetryOverlay()
+        }
+        func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+            showRetryOverlay()
+        }
+        func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+            showRetryOverlay()
+        }
+        // Content process killed by the OS (memory pressure / long background) →
+        // reload to recover rather than leaving a blank view. (30 §1-2)
+        func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+            var request = URLRequest(url: parent.url)
+            request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
+            webView.load(request)
+        }
+
+        @objc private func retryTapped() {
+            guard let webView = webView else { return }
+            hideRetryOverlay()
+            var request = URLRequest(url: parent.url)
+            request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
+            webView.load(request)
+        }
+
+        private func showRetryOverlay() {
+            guard let webView = webView, retryOverlay == nil else { return }
+            let overlay = UIView(frame: webView.bounds)
+            overlay.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            overlay.backgroundColor = UIColor(red: 0.04, green: 0.04, blue: 0.10, alpha: 1)
+
+            let label = UILabel()
+            label.text = "연결할 수 없어요"
+            label.textColor = .white
+            label.font = .boldSystemFont(ofSize: 20)
+            label.textAlignment = .center
+            label.translatesAutoresizingMaskIntoConstraints = false
+
+            let button = UIButton(type: .system)
+            button.setTitle("다시 시도", for: .normal)
+            button.titleLabel?.font = .boldSystemFont(ofSize: 18)
+            button.backgroundColor = UIColor(red: 0.39, green: 0.97, blue: 0.81, alpha: 1)
+            button.setTitleColor(UIColor(red: 0.04, green: 0.04, blue: 0.10, alpha: 1), for: .normal)
+            button.layer.cornerRadius = 12
+            button.contentEdgeInsets = UIEdgeInsets(top: 12, left: 28, bottom: 12, right: 28)
+            button.translatesAutoresizingMaskIntoConstraints = false
+            button.addTarget(self, action: #selector(retryTapped), for: .touchUpInside)
+
+            overlay.addSubview(label)
+            overlay.addSubview(button)
+            NSLayoutConstraint.activate([
+                label.centerXAnchor.constraint(equalTo: overlay.centerXAnchor),
+                label.centerYAnchor.constraint(equalTo: overlay.centerYAnchor, constant: -30),
+                button.centerXAnchor.constraint(equalTo: overlay.centerXAnchor),
+                button.topAnchor.constraint(equalTo: label.bottomAnchor, constant: 20),
+            ])
+            webView.addSubview(overlay)
+            retryOverlay = overlay
+        }
+
+        private func hideRetryOverlay() {
+            retryOverlay?.removeFromSuperview()
+            retryOverlay = nil
         }
 
         // MARK: - WKUIDelegate (the game uses custom modals; these are safety nets)
@@ -106,7 +258,24 @@ struct WebView: UIViewRepresentable {
             completionHandler()
         }
         func webView(_ webView: WKWebView, runJavaScriptConfirmPanelWithMessage message: String, initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping (Bool) -> Void) {
-            completionHandler(true)
+            guard let rootVC = getRootViewController() else { completionHandler(true); return }
+            let alert = UIAlertController(title: nil, message: message, preferredStyle: .alert)
+            alert.addAction(UIAlertAction(title: "취소", style: .cancel) { _ in completionHandler(false) })
+            alert.addAction(UIAlertAction(title: "확인", style: .default) { _ in completionHandler(true) })
+            rootVC.present(alert, animated: true)
+        }
+
+        // WKWebView ignores window.prompt unless this is implemented — the nickname
+        // and recovery-code flows use prompt and would silently no-op without it. (30 §1-8)
+        func webView(_ webView: WKWebView, runJavaScriptTextInputPanelWithPrompt prompt: String, defaultText: String?, initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping (String?) -> Void) {
+            guard let rootVC = getRootViewController() else { completionHandler(defaultText); return }
+            let alert = UIAlertController(title: nil, message: prompt, preferredStyle: .alert)
+            alert.addTextField { tf in tf.text = defaultText }
+            alert.addAction(UIAlertAction(title: "취소", style: .cancel) { _ in completionHandler(nil) })
+            alert.addAction(UIAlertAction(title: "확인", style: .default) { _ in
+                completionHandler(alert.textFields?.first?.text)
+            })
+            rootVC.present(alert, animated: true)
         }
 
         // MARK: - Haptics
@@ -267,8 +436,10 @@ class RewardedAdManager: NSObject, FullScreenContentDelegate {
     private var isLoading = false
     private var rewardType = "reward"
 
-    // TODO: replace with your AdMob rewarded unit id. This is Google's TEST id.
-    private let adUnitId = "ca-app-pub-3940256099942544/1712485313"
+    private let testAdUnitId = "ca-app-pub-3940256099942544/1712485313" // Google test rewarded
+    // TODO: replace with your real AdMob rewarded unit id before App Store release.
+    private let realAdUnitId = "ca-app-pub-3940256099942544/1712485313"
+    private var adUnitId: String { isInternalAdBuild ? testAdUnitId : realAdUnitId }
 
     init(coordinator: WebView.Coordinator) {
         self.coordinator = coordinator
@@ -332,8 +503,10 @@ class InterstitialAdManager: NSObject, FullScreenContentDelegate {
     private var isLoading = false
     private var onClose: (() -> Void)?
 
-    // TODO: replace with your AdMob interstitial unit id. This is Google's TEST id.
-    private let adUnitId = "ca-app-pub-3940256099942544/4411468910"
+    private let testAdUnitId = "ca-app-pub-3940256099942544/4411468910" // Google test interstitial
+    // TODO: replace with your real AdMob interstitial unit id before App Store release.
+    private let realAdUnitId = "ca-app-pub-3940256099942544/4411468910"
+    private var adUnitId: String { isInternalAdBuild ? testAdUnitId : realAdUnitId }
 
     override init() { super.init(); load() }
 
