@@ -225,13 +225,18 @@ struct WebView: UIViewRepresentable {
             label.textAlignment = .center
             label.translatesAutoresizingMaskIntoConstraints = false
 
-            let button = UIButton(type: .system)
-            button.setTitle("다시 시도", for: .normal)
-            button.titleLabel?.font = .boldSystemFont(ofSize: 18)
-            button.backgroundColor = UIColor(red: 0.39, green: 0.97, blue: 0.81, alpha: 1)
-            button.setTitleColor(UIColor(red: 0.04, green: 0.04, blue: 0.10, alpha: 1), for: .normal)
-            button.layer.cornerRadius = 12
-            button.contentEdgeInsets = UIEdgeInsets(top: 12, left: 28, bottom: 12, right: 28)
+            var config = UIButton.Configuration.filled()
+            config.title = "다시 시도"
+            config.baseBackgroundColor = UIColor(red: 0.39, green: 0.97, blue: 0.81, alpha: 1)
+            config.baseForegroundColor = UIColor(red: 0.04, green: 0.04, blue: 0.10, alpha: 1)
+            config.background.cornerRadius = 12
+            config.contentInsets = NSDirectionalEdgeInsets(top: 12, leading: 28, bottom: 12, trailing: 28)
+            config.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { attrs in
+                var attrs = attrs
+                attrs.font = .boldSystemFont(ofSize: 18)
+                return attrs
+            }
+            let button = UIButton(configuration: config)
             button.translatesAutoresizingMaskIntoConstraints = false
             button.addTarget(self, action: #selector(retryTapped), for: .touchUpInside)
 

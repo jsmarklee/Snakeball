@@ -14,6 +14,7 @@
 		90E9D17C426BC79134275D5D /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 0F646BE5CEA3DCB9477B44DA /* Assets.xcassets */; };
 		96056E5748247F43AB025EC3 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 554D0E36FEE34A567DDA7B08 /* PrivacyInfo.xcprivacy */; };
 		9F6A2F686C3106EA20B6F6D3 /* StoreKitManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01333EFD487216A451147446 /* StoreKitManager.swift */; };
+		C417EA9E755AA05F671FC197 /* GameCenterManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 675B7616D8FB4C55CD64AD86 /* GameCenterManager.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -22,6 +23,7 @@
 		2BE91299D49CDE32DB1EC3EF /* SnakeballApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnakeballApp.swift; sourceTree = "<group>"; };
 		43EF99DFC1C0E0D44F3125B1 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		554D0E36FEE34A567DDA7B08 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		675B7616D8FB4C55CD64AD86 /* GameCenterManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameCenterManager.swift; sourceTree = "<group>"; };
 		7273166EA1489FC1C6D7C155 /* WebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebView.swift; sourceTree = "<group>"; };
 		964FE30603263DA0C1BE642A /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		DA335F51393EE52289BF1709 /* Snakeball.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Snakeball.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -52,6 +54,7 @@
 			children = (
 				0F646BE5CEA3DCB9477B44DA /* Assets.xcassets */,
 				43EF99DFC1C0E0D44F3125B1 /* ContentView.swift */,
+				675B7616D8FB4C55CD64AD86 /* GameCenterManager.swift */,
 				964FE30603263DA0C1BE642A /* Info.plist */,
 				554D0E36FEE34A567DDA7B08 /* PrivacyInfo.xcprivacy */,
 				2BE91299D49CDE32DB1EC3EF /* SnakeballApp.swift */,
@@ -99,7 +102,12 @@
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = YES;
-				LastUpgradeCheck = 1430;
+				LastUpgradeCheck = 2660;
+				TargetAttributes = {
+					15F751711B5432AFF4342932 = {
+						ProvisioningStyle = Automatic;
+					};
+				};
 			};
 			buildConfigurationList = 1AFEF91F48F5B90579994B9D /* Build configuration list for PBXProject "Snakeball" */;
 			developmentRegion = en;
@@ -141,6 +149,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				32AB65CC3FAD97521B8087BA /* ContentView.swift in Sources */,
+				C417EA9E755AA05F671FC197 /* GameCenterManager.swift in Sources */,
 				53B0AD5DF31042A3124D5F1B /* SnakeballApp.swift in Sources */,
 				9F6A2F686C3106EA20B6F6D3 /* StoreKitManager.swift in Sources */,
 				0004C71C0DB7C73C92200CCD /* WebView.swift in Sources */,
@@ -185,8 +194,10 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = G5JLFMM2WV;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
 				GCC_DYNAMIC_NO_PIC = NO;
 				GCC_NO_COMMON_BLOCKS = YES;
@@ -207,6 +218,7 @@
 				ONLY_ACTIVE_ARCH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.0;
@@ -248,8 +260,10 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = G5JLFMM2WV;
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
 				GCC_NO_COMMON_BLOCKS = YES;
 				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
@@ -263,6 +277,7 @@
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				SWIFT_OPTIMIZATION_LEVEL = "-O";
 				SWIFT_VERSION = 5.0;
@@ -274,10 +289,10 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_ENTITLEMENTS = Snakeball/Snakeball.entitlements;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = G5JLFMM2WV;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Snakeball/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -286,7 +301,6 @@
 				);
 				MARKETING_VERSION = 1.0.0;
 				PRODUCT_BUNDLE_IDENTIFIER = studio.hodgepodge.snakeball;
-				PROVISIONING_PROFILE_SPECIFIER = "";
 				SDKROOT = iphoneos;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = 1;
@@ -298,10 +312,10 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_ENTITLEMENTS = Snakeball/Snakeball.entitlements;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = G5JLFMM2WV;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Snakeball/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -310,7 +324,6 @@
 				);
 				MARKETING_VERSION = 1.0.0;
 				PRODUCT_BUNDLE_IDENTIFIER = studio.hodgepodge.snakeball;
-				PROVISIONING_PROFILE_SPECIFIER = "";
 				SDKROOT = iphoneos;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = 1;

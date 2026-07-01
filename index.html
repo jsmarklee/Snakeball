@@ -5,7 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 <title>Snakeball</title>
 <style>
-* { margin: 0; padding: 0; box-sizing: border-box; }
+* { margin: 0; padding: 0; box-sizing: border-box;
+    /* 게임 중 길게 누르면 텍스트/요소가 선택돼 파란 하이라이트가 뜨는 걸 방지 */
+    -webkit-user-select: none; -moz-user-select: none; -ms-user-select: none; user-select: none;
+    -webkit-tap-highlight-color: transparent; -webkit-touch-callout: none; }
+/* 닉네임 입력 등 실제 텍스트 입력은 선택 허용 */
+input, textarea { -webkit-user-select: text; user-select: text; }
 html, body { width: 100%; height: 100%; overflow: hidden; background: #0a0a1a; font-family: 'Segoe UI', Arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji'; touch-action: none; }
 canvas { display: block; width: 100%; height: 100%; }
 
@@ -145,13 +150,14 @@ canvas { display: block; width: 100%; height: 100%; }
 
 /* Home action buttons */
 #home-actions {
-    display: flex; gap: 12px; margin-top: 22px;
+    display: flex; flex-wrap: wrap; gap: 12px; margin-top: 22px;
+    justify-content: center; max-width: 320px; padding: 0 12px;
 }
 .home-btn {
     display: flex; flex-direction: column; align-items: center; gap: 3px;
     background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.18);
-    border-radius: 16px; padding: 12px 18px; color: #fff; font-size: 12px; font-weight: 600;
-    cursor: pointer; min-width: 74px; transition: transform 0.1s, background 0.2s;
+    border-radius: 16px; padding: 12px 14px; color: #fff; font-size: 12px; font-weight: 600;
+    cursor: pointer; min-width: 84px; transition: transform 0.1s, background 0.2s;
     position: relative;
 }
 .home-btn:active { transform: scale(0.93); }
@@ -547,7 +553,6 @@ canvas { display: block; width: 100%; height: 100%; }
             <div id="xpromo-more-games"></div>
             <div class="setting-row" id="set-recovery-show" style="cursor:pointer">Recovery Code<span id="recovery-code-val" style="color:var(--mint);font-size:13px;font-weight:700">View ›</span></div>
             <div class="setting-row" id="set-recovery-enter" style="cursor:pointer">Restore from Code<span style="color:#8a8aa8;font-size:16px">›</span></div>
-            <div class="setting-row" id="set-reset-row" style="cursor:pointer">Reset Progress<span style="color:#ff6b6b;font-size:13px">⟲</span></div>
             <div class="setting-row" id="set-version-row" style="border-bottom:none;color:#8a8aa8;font-size:13px">Version<span id="set-version-val">v1.0</span></div>
         </div>
     </div>
@@ -601,7 +606,10 @@ const TOSS_CONTACTS_VIRAL_MODULE_ID = '';
 // 광고 전역 on/off. AdMob 계정이 정지/심사 중이거나 실제 광고 ID가 아직 없으면 false로
 // 출시 → 보상형 광고 UI(부활/더블코인 ▶버튼)를 전부 숨기고 코인/젬 폴백만 노출한다.
 // 죽은 광고 버튼은 신뢰를 깎고 App Store 2.1 리젝 위험. (플레이북 21 §9-6 / ios-launch-ads-off)
-const ADS_ENABLED = true;
+// v1 출시: 실 AdMob ID 미확보 + 계정 정지 이력 → false로 출시(광고 UI 전부 숨김, 심사 클린).
+// 실 rewarded unit id를 native(WebView.swift realAdUnitId + Info.plist app id)에 넣고 나면
+// 이 값만 true로 되돌려 web 배포하면 광고 UI가 켜진다(App Store 재심사 불필요).
+const ADS_ENABLED = false;
 
 // ---------- App / legal info (About section) ----------
 const APP_VERSION = '1.0';
@@ -684,6 +692,21 @@ const state = {
     stats:    load('sb_stats', { games:0, cubes:0, coins:0, megas:0, revives:0, bestRunScore:0, bestCombo:0, bestBalls:0 }),
     name:     load('sb_name', ''),   // 온라인 리더보드 닉네임 (localStorage 'sb_name')
 };
+
+// randomName — 최초 실행 시 부여할 랜덤 닉네임 (MinefieldSweeper의 'Miner#1234' 패턴).
+// 'Anonymous'로 모두 똑같이 보이는 걸 막아 리더보드에서 서로 구분되게 한다.
+// 형식: 형용사+명사+2자리수 (예: NeonViper42). 서버 sanitizeName(1~16자) 안에 들어가도록
+// 단어를 짧게 유지(최장 6+6+2=14자). 사용자는 설정/리더보드에서 언제든 변경 가능.
+function randomName() {
+    const adj = ['Neon','Mega','Turbo','Hyper','Swift','Cyber','Iron','Gold','Volt','Nova',
+                 'Pixel','Laser','Solar','Cosmic','Rapid','Zippy','Astro','Ultra'];
+    const noun = ['Snake','Ball','Viper','Cobra','Python','Racer','Dash','Roller','Comet',
+                  'Bolt','Blitz','Coil','Orb','Glider','Runner','Rocket'];
+    const pick = (a) => a[Math.floor(Math.random() * a.length)];
+    return pick(adj) + pick(noun) + (10 + Math.floor(Math.random() * 90));
+}
+// 기존 유저(빈 이름)에게도 1회 부여하고 영구 저장한다.
+if (!state.name) { state.name = randomName(); save('sb_name', state.name); }
 function persist() {
     save('sb_coins', state.coins); save('sb_gems', state.gems);
     save('sb_skin', state.skin); save('sb_owned', state.owned);
@@ -1921,13 +1944,6 @@ function wire() {
     onTap($('set-support-row'), () => composeEmail(LEGAL.support));
     onTap($('set-recovery-show'), () => showRecoveryCode());
     onTap($('set-recovery-enter'), () => recoverFromCode());
-    onTap($('set-reset-row'), () => {
-        if (confirm('Reset ALL progress, coins, gems and unlocks? This cannot be undone.')) {
-            ['sb_coins','sb_gems','sb_skin','sb_owned','sb_removeads','sb_powerups','sb_armed','sb_daily','sb_missions','sb_stats'].forEach(k => LS.removeItem(k));
-            location.reload();
-        }
-    });
-
     // Auto-pop daily reward once per day on first load
     if (dailyAvailable() && state.daily.last !== '') {
         // returning player — surface the daily

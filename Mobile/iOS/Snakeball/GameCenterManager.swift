@@ -15,7 +15,7 @@ class GameCenterManager {
 
     /// 글로벌 리더보드 ID.
     /// USER: App Store Connect에서 동일한 ID로 리더보드를 생성해야 함.
-    static let globalLeaderboardID = "snakeball.leaderboard.global"
+    nonisolated static let globalLeaderboardID = "snakeball.leaderboard.global"
 
     private init() {}
 
