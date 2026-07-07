@@ -56,6 +56,11 @@ class StoreKitManager: ObservableObject {
 
     /// Restore: sync, then return the product ids of currently-entitled
     /// non-consumables so the web layer can re-grant them.
+    /// NOTE: Currently dormant — every live SKU is a consumable (coins/gems);
+    /// `nonConsumables` lists only retired SKUs that were never sold, so this
+    /// returns [] in practice. Cross-device recovery of consumables goes through
+    /// the web layer's recovery code instead. Kept so it activates if a
+    /// non-consumable SKU is ever (re)added.
     func restoreNonConsumables() async -> [String] {
         try? await AppStore.sync()
         var owned: [String] = []

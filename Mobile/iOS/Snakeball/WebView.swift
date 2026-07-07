@@ -387,6 +387,8 @@ struct WebView: UIViewRepresentable {
             }
         }
 
+        // Dormant while all SKUs are consumables (restoreNonConsumables returns []);
+        // becomes meaningful only if a non-consumable SKU is ever added.
         @MainActor
         private func handleRestore() async {
             let restored = await StoreKitManager.shared.restoreNonConsumables()

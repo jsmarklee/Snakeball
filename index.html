@@ -1256,7 +1256,7 @@ function renderShop() {
         b.disabled = true;
         const ok = await purchase(b.dataset.buyiap);
         b.disabled = false;
-        if (ok) { vibrate('success'); renderShop(); refreshHUD(); toast('Purchase complete!'); }
+        if (ok) { vibrate('success'); renderShop(); refreshHUD(); toast('Purchase complete!'); promptRecoveryCodeAfterPurchase(); }
         else toast('Purchase cancelled');
     });
 }
@@ -1416,7 +1416,8 @@ function captureStableIdAndRecover() {
 captureStableIdAndRecover();
 
 // showRecoveryCode — 복구 코드 발급 + 자동 클립보드 복사 + 표시.
-async function showRecoveryCode() {
+// message로 안내 문구를 바꿀 수 있다(결제 직후 프롬프트용).
+async function showRecoveryCode(message) {
     if (!lbAvailable || !fbFns) { toast('복구 기능을 사용할 수 없어요'); return; }
     try {
         const uid = await whenAuthReady;
@@ -1424,12 +1425,23 @@ async function showRecoveryCode() {
         const res = await fbFns.httpsCallable('generateRecoveryCode')();
         const code = res?.data?.code;
         if (!code) { toast('코드 생성 실패'); return; }
+        save('sb_recovery_prompted', true);   // 코드를 본 적 있음 → 결제 후 프롬프트 생략
         let copied = false;
         try { await navigator.clipboard.writeText(code); copied = true; } catch (_) {}
         const el = $('recovery-code-val'); if (el) el.textContent = code;
         alert((copied ? '복구 코드가 복사되었어요:\n\n' : '복구 코드:\n\n') + code +
-            '\n\n새 기기에서 이 코드로 복구할 수 있어요. 안전한 곳에 보관하세요!');
+            '\n\n' + (message || '새 기기에서 이 코드로 복구할 수 있어요. 안전한 곳에 보관하세요!'));
     } catch (e) { toast('코드 생성 실패'); }
+}
+
+// promptRecoveryCodeAfterPurchase — 첫 실결제 성공 직후 1회, 복구 코드를 발급해
+// 보관을 유도한다. IAP가 전부 소모성(코인/젬)이라 복구 코드가 유일한 기기 간
+// 구매 이전 수단이기 때문. (플레이북 20 §1 "계정 사다리")
+async function promptRecoveryCodeAfterPurchase() {
+    if (platform === 'web') return;                    // 웹은 데모 결제 — 대상 아님
+    if (load('sb_recovery_prompted', false)) return;   // 기기당 1회 (코드를 이미 봤으면 생략)
+    if (!lbAvailable || !fbFns) return;                // 오프라인이면 조용히 스킵 (설정 메뉴는 그대로)
+    await showRecoveryCode('기기를 바꿔도 구매를 되찾으려면 이 코드를 보관하세요!');
 }
 
 // recoverFromCode — 코드 입력 → 소스 계정 이전 (force 확인 플로우 포함).
@@ -2400,6 +2412,32 @@ for (let i = 0; i < WALL_POOL_SIZE; i++) {
     walls.push({ mesh, active: false, side: 0, originalPos: new THREE.Vector3() });
 }
 
+// ------------------------------------------------------------------
+// Bars pool — the timing/reaction hazards (hurdle / overhead / laser / sweeper).
+// One unit-box mesh per slot, scaled + recoloured per kind on spawn. These are the
+// obstacles that punish the "jump dodges everything" exploit: hurdles/lasers demand
+// a jump, overhead bars demand you STAY grounded, sweepers demand lane timing.
+// ------------------------------------------------------------------
+const BAR_HURDLE = 'hurdle', BAR_OVERHEAD = 'overhead', BAR_LASER = 'laser', BAR_SWEEPER = 'sweeper';
+const BAR_CLEAR_Y = 1.0;       // ball must be above this to clear a hurdle / laser
+const BAR_OVERHEAD_HIT_Y = 0.9; // ball above this smacks into an overhead bar
+const bars = [];
+const BAR_POOL_SIZE = 16;
+const barGeometry = new THREE.BoxGeometry(1, 1, 1);
+for (let i = 0; i < BAR_POOL_SIZE; i++) {
+    const mesh = new THREE.Mesh(barGeometry, new THREE.MeshStandardMaterial({
+        roughness: 0.3, metalness: 0.3, transparent: true
+    }));
+    mesh.visible = false;
+    scene.add(mesh);
+    bars.push({
+        mesh, active: false, kind: BAR_HURDLE, originalPos: new THREE.Vector3(),
+        halfW: 2.75, halfD: 0.35, deadly: false,
+        blink: false, blinkT: 0, on: true,
+        sweep: 0, sweepDir: 1, sweepMin: 0, sweepMax: 0, hit: false
+    });
+}
+
 // Free ball items pool
 const freeBallItems = [];
 const FREEBALL_POOL_SIZE = 15;
@@ -2497,7 +2535,10 @@ function getDifficulty() {
     if (t < 35) return 4;
     if (t < 50) return 5;
     if (t < 70) return 6;
-    return 7;
+    if (t < 95) return 7;
+    // Endless: keep climbing +1 tier every 28s so long runs never plateau.
+    // (Callers that index tier-keyed tables must clamp to 7 — see getRandomCubeType.)
+    return 7 + Math.floor((t - 95) / 28);
 }
 
 function getCubeLevel() {
@@ -2509,7 +2550,9 @@ function getCubeLevel() {
 
 function getRandomCubeType() {
     const d = getDifficulty();
-    const types = CUBE_TYPE_MAP[d] || [1, 2];
+    // Clamp to the top defined tier: past ~95s getDifficulty() returns 8,9,… which
+    // would fall through to the [1,2] default (EASY) and make long runs trivial.
+    const types = CUBE_TYPE_MAP[Math.min(d, 7)] || [1, 2];
     const t = types[Math.floor(Math.random() * types.length)] - 1;
     return t;
 }
@@ -2527,6 +2570,13 @@ function getCubeHP(cubeType, level) {
 const PATTERN_GAUNTLET = 11;      // multiple walls in sequence
 const PATTERN_CUBE_STORM = 12;    // cubes scattered across many lanes
 const PATTERN_NARROW_PASS = 13;   // walls on both sides, one lane gap
+const PATTERN_SPLIT_GATE = 14;    // two numbered cubes, different HP — greedy choice
+const PATTERN_TOWER = 15;         // stacked cubes ("cubes above cubes")
+const PATTERN_HURDLE = 16;        // full-width low bar — must JUMP
+const PATTERN_OVERHEAD = 17;      // full-width high bar — must stay GROUNDED
+const PATTERN_SWEEPER = 18;       // bar sliding across lanes — time the crossing
+const PATTERN_LASER = 19;         // blinking full-width beam — deadly when lit
+const PATTERN_CASCADE = 20;       // chained hazards, the late-game killer
 
 function generatePattern() {
     const d = getDifficulty();
@@ -2545,11 +2595,16 @@ function generatePattern() {
     patterns.push(PATTERN_CUBES_SINGLE);
 
     if (d >= 1) patterns.push(PATTERN_CUBES_ROW, PATTERN_WALL_LEFT);
-    if (d >= 2) patterns.push(PATTERN_CUBES_DOUBLE, PATTERN_WALL_RIGHT, PATTERN_CUBES_ZIGZAG);
-    if (d >= 3) patterns.push(PATTERN_CUBES_WALL, PATTERN_CUBES_ZIGZAG, PATTERN_GAUNTLET, PATTERN_NARROW_PASS);
-    if (d >= 4) patterns.push(PATTERN_IRON_CUBE, PATTERN_CUBE_STORM, PATTERN_GAUNTLET, PATTERN_CUBES_WALL);
-    if (d >= 5) patterns.push(PATTERN_IRON_CUBE, PATTERN_CUBE_STORM, PATTERN_NARROW_PASS, PATTERN_GAUNTLET);
-    if (d >= 6) patterns.push(PATTERN_IRON_CUBE, PATTERN_CUBE_STORM, PATTERN_NARROW_PASS, PATTERN_CUBES_WALL, PATTERN_GAUNTLET);
+    if (d >= 2) patterns.push(PATTERN_CUBES_DOUBLE, PATTERN_WALL_RIGHT, PATTERN_CUBES_ZIGZAG,
+                              PATTERN_SPLIT_GATE, PATTERN_TOWER, PATTERN_HURDLE);
+    if (d >= 3) patterns.push(PATTERN_CUBES_WALL, PATTERN_CUBES_ZIGZAG, PATTERN_GAUNTLET, PATTERN_NARROW_PASS,
+                              PATTERN_HURDLE, PATTERN_SWEEPER, PATTERN_OVERHEAD, PATTERN_TOWER);
+    if (d >= 4) patterns.push(PATTERN_IRON_CUBE, PATTERN_CUBE_STORM, PATTERN_GAUNTLET, PATTERN_CUBES_WALL,
+                              PATTERN_LASER, PATTERN_OVERHEAD, PATTERN_SWEEPER, PATTERN_SPLIT_GATE);
+    if (d >= 5) patterns.push(PATTERN_IRON_CUBE, PATTERN_CUBE_STORM, PATTERN_NARROW_PASS, PATTERN_GAUNTLET,
+                              PATTERN_LASER, PATTERN_CASCADE, PATTERN_HURDLE, PATTERN_TOWER);
+    if (d >= 6) patterns.push(PATTERN_IRON_CUBE, PATTERN_CUBE_STORM, PATTERN_NARROW_PASS, PATTERN_CUBES_WALL,
+                              PATTERN_LASER, PATTERN_CASCADE, PATTERN_OVERHEAD, PATTERN_SWEEPER, PATTERN_CASCADE);
 
     return patterns[Math.floor(Math.random() * patterns.length)];
 }
@@ -2626,9 +2681,9 @@ function laneToX(lane) {
     return (lane - 2) * LANE_WIDTH;
 }
 
-function spawnCube(z, lane, cubeType, level) {
+function spawnCube(z, lane, cubeType, level, yLevel) {
     const cube = getFreeCube();
-    if (!cube) return;
+    if (!cube) return null;
 
     const type = cubeType !== undefined ? cubeType : getRandomCubeType();
     const lvl = level !== undefined ? level : getCubeLevel();
@@ -2653,10 +2708,12 @@ function spawnCube(z, lane, cubeType, level) {
     }
 
     const x = laneToX(lane);
-    cube.mesh.position.set(x, 0.4, z);
-    cube.originalPos.set(x, 0.4, z);
+    const y = 0.4 + (yLevel || 0) * 0.8; // yLevel stacks cubes for towers
+    cube.mesh.position.set(x, y, z);
+    cube.originalPos.set(x, y, z);
     cube.mesh.visible = true;
     updateCubeText(cube);
+    return cube;
 }
 
 function spawnWall(z, lane) {
@@ -2692,6 +2749,65 @@ function spawnMegaBall(z, lane) {
     item.originalPos.set(x, 0.5, z);
     item.mesh.position.set(x, 0.5, z);
     item.mesh.visible = true;
+}
+
+function getFreeBar() {
+    for (const b of bars) if (!b.active) return b;
+    return null;
+}
+
+// Spawn a bar hazard. `opts`: { span (half-width in world units, default full road),
+// centerLane, blink, deadly, sweep (px/s across lanes) }.
+function spawnBar(z, kind, opts = {}) {
+    const bar = getFreeBar();
+    if (!bar) return null;
+    bar.active = true;
+    bar.kind = kind;
+    bar.blink = !!opts.blink;
+    bar.blinkT = 0;
+    bar.on = true;
+    bar.hit = false;
+    bar.sweep = 0;
+    bar.sweepDir = Math.random() < 0.5 ? 1 : -1;
+
+    const halfW = opts.span != null ? opts.span : ROAD_WIDTH / 2 - 0.1; // full width by default
+    bar.halfW = halfW;
+    const cx = opts.centerX != null ? opts.centerX : 0;
+
+    const m = bar.mesh.material;
+    let y, h, d = 0.4;
+    if (kind === BAR_HURDLE) {
+        y = 0.5; h = 0.9; bar.deadly = false;
+        m.color.set(0xffcc00); m.emissive.set(0xffaa00); m.emissiveIntensity = 0.6; m.opacity = 1;
+    } else if (kind === BAR_OVERHEAD) {
+        y = 1.7; h = 0.7; bar.deadly = false;
+        m.color.set(0xff44cc); m.emissive.set(0xcc0088); m.emissiveIntensity = 0.6; m.opacity = 1;
+    } else if (kind === BAR_LASER) {
+        y = 0.35; h = 0.5; d = 0.25; bar.deadly = true;
+        m.color.set(0xff2222); m.emissive.set(0xff0000); m.emissiveIntensity = 1.0; m.opacity = 0.9;
+    } else { // BAR_SWEEPER
+        y = 0.6; h = 1.1; bar.deadly = false;
+        m.color.set(0x33ddff); m.emissive.set(0x0099cc); m.emissiveIntensity = 0.6; m.opacity = 1;
+        // Sweep across the middle lanes; bounce between these X bounds.
+        bar.sweepMin = -ROAD_WIDTH / 2 + halfW;
+        bar.sweepMax = ROAD_WIDTH / 2 - halfW;
+        bar.sweep = opts.sweepSpeed || (4 + getDifficulty() * 0.5);
+    }
+    bar.halfD = d / 2;
+    bar.mesh.scale.set(halfW * 2, h, d);
+    bar.originalPos.set(cx, y, z);
+    bar.mesh.position.set(cx, y, z);
+    bar.mesh.visible = true;
+    return bar;
+}
+
+// Stacked cubes in one lane — "cubes above cubes". Taller than the jump apex, so it's
+// a pure grow-or-dodge check. The bottom cube is the cheapest (you hit it first); the
+// stack reads as one intimidating tower whose combined HP eats a big chunk of balls.
+function spawnTower(z, lane, height, level) {
+    for (let i = 0; i < height; i++) {
+        spawnCube(z, lane, undefined, level, i);
+    }
 }
 
 function spawnPatternAt(z) {
@@ -2794,6 +2910,59 @@ function spawnPatternAt(z) {
             }
             break;
         }
+        case PATTERN_SPLIT_GATE: {
+            // Two numbered cubes on opposite sides — you can only afford one gap.
+            // Coins hide behind the tougher cube: greedy players risk the harder line.
+            const leftLane = Math.floor(Math.random() * 2);       // 0-1
+            const rightLane = 3 + Math.floor(Math.random() * 2);  // 3-4
+            const easy = spawnCube(z, leftLane, undefined, level);
+            const hard = spawnCube(z, rightLane, undefined, Math.min(level + 1, 2));
+            // Make the disparity obvious: bump the "hard" cube's HP well above the easy one.
+            if (easy && hard && hard.type !== IRON_CUBE_TYPE && easy.type !== IRON_CUBE_TYPE) {
+                if (hard.hp <= easy.hp) { hard.hp = easy.hp + 4 + Math.floor(Math.random() * 6); hard.score = hard.hp; updateCubeText(hard); }
+                const rewardLane = hard.hp > easy.hp ? rightLane : leftLane;
+                for (let i = 0; i < 4; i++) spawnCoin(z + 2 + i * 1.3, rewardLane);
+            }
+            break;
+        }
+        case PATTERN_TOWER: {
+            const lane = Math.floor(Math.random() * 5);
+            const height = d >= 5 ? 3 : 2;
+            spawnTower(z, lane, height, level);
+            break;
+        }
+        case PATTERN_HURDLE: {
+            // Full-width bar you must JUMP. Grounded = crash (lose balls).
+            spawnBar(z, BAR_HURDLE);
+            break;
+        }
+        case PATTERN_OVERHEAD: {
+            // Full-width high bar — you must be GROUNDED. Punishes reflexive jumping.
+            spawnBar(z, BAR_OVERHEAD);
+            break;
+        }
+        case PATTERN_SWEEPER: {
+            // A bar covering ~2 lanes that slides side to side; thread the open side.
+            spawnBar(z, BAR_SWEEPER, { span: LANE_WIDTH * 1.1 });
+            break;
+        }
+        case PATTERN_LASER: {
+            // Blinking deadly beam across the whole road. Jump it, or roll through
+            // while it's off. Higher tiers pulse faster = tighter window.
+            spawnBar(z, BAR_LASER, { blink: d >= 5 });
+            break;
+        }
+        case PATTERN_CASCADE: {
+            // The late-game killer: chained hazards with just enough spacing to react,
+            // so recovering from one drops you into the next. Alternates jump / grounded
+            // / lane-timing demands so you can't hold one input.
+            const jd = Math.max(14, velocity.z * 0.85); // rough jump-arc distance
+            spawnBar(z, BAR_HURDLE);
+            spawnBar(z + jd + 4, BAR_OVERHEAD);          // +4 = landing buffer, so it's fair
+            spawnBar(z + jd + 12, BAR_SWEEPER, { span: LANE_WIDTH * 1.1 });
+            if (d >= 6) spawnBar(z + jd * 2 + 16, BAR_LASER, { blink: true });
+            break;
+        }
     }
 
     // Sprinkle a coin trail alongside most patterns (the core grind currency).
@@ -2834,6 +3003,12 @@ function ensureRoadsAndPatterns() {
         if (w.active && w.mesh.position.z < ballZ + DESPAWN_DISTANCE) {
             w.active = false;
             w.mesh.visible = false;
+        }
+    }
+    for (const bar of bars) {
+        if (bar.active && bar.mesh.position.z < ballZ + DESPAWN_DISTANCE) {
+            bar.active = false;
+            bar.mesh.visible = false;
         }
     }
     for (const b of freeBallItems) {
@@ -3049,6 +3224,63 @@ function checkCollisions() {
         }
     }
 
+    // Bar hazards (hurdle / overhead / laser / sweeper)
+    for (const bar of bars) {
+        if (!bar.active || bar.hit) continue;
+        const bx = bar.mesh.position.x;
+        const bz = bar.mesh.position.z;
+        const dz = Math.abs(ballPos.z - bz);
+        const dx = Math.abs(ballPos.x - bx);
+        if (dz > bar.halfD + ballRadius) continue;      // not at this depth yet
+        if (dx > bar.halfW + ballRadius) continue;      // outside the bar's span
+
+        // Decide whether this bar actually hits, based on the ball's vertical state.
+        let struck = false;
+        if (bar.kind === BAR_HURDLE) {
+            struck = ballPos.y < BAR_CLEAR_Y;           // must be airborne to clear
+        } else if (bar.kind === BAR_OVERHEAD) {
+            struck = ballPos.y > BAR_OVERHEAD_HIT_Y;    // must stay grounded
+        } else if (bar.kind === BAR_LASER) {
+            struck = bar.on && ballPos.y < BAR_CLEAR_Y;  // only lit + grounded kills
+        } else { // BAR_SWEEPER
+            struck = ballPos.y < 1.3;
+        }
+        if (!struck) continue;
+
+        if (safe) {
+            // Mega / grace: blow the bar away for a little score.
+            score += WALL_SCORE; showScorePopup(WALL_SCORE);
+            spawnParticles(bar.mesh.position, bar.mesh.material.color, 10);
+            bar.active = false; bar.mesh.visible = false;
+            playSound('hitWall');
+            continue;
+        }
+        if (shieldActive) { consumeBarShield(bar); continue; }
+
+        bar.hit = true; // debounce so one contact doesn't fire every frame
+        if (bar.deadly) {
+            // Laser — instant death.
+            playSound('ironCube');
+            cameraShake = 0.5;
+            spawnParticles(ballPos.clone(), new THREE.Color(1, 0.2, 0.2), 14);
+            ballCount = 0;
+            triggerDeath();
+            return;
+        }
+        // Erosion hazard: peel off a big chunk of balls + shove back. Empties → death.
+        const loss = Math.max(4, Math.ceil(ballCount * 0.45));
+        ballCount = Math.max(0, ballCount - loss);
+        mainBallGroup.position.z = bz - bar.halfD - ballRadius - HIT_BACK_DISTANCE;
+        playerWorldZ = mainBallGroup.position.z;
+        cameraShake = 0.4;
+        playSound('hitCube');
+        spawnParticles(ballPos.clone(), bar.mesh.material.color, 10);
+        if (window.SB) SB.vibrate('heavy');
+        if (ballCount <= 0) { triggerDeath(); return; }
+        updateUI();
+        updateFollowingBalls();
+    }
+
     // Free ball items
     for (const item of freeBallItems) {
         if (!item.active) continue;
@@ -3086,6 +3318,18 @@ function checkCollisions() {
 function consumeShield(cube) {
     shieldActive = false;
     if (cube) { cube.active = false; cube.mesh.visible = false; spawnParticles(cube.mesh.position, new THREE.Color(0.4,1,0.9), 14); }
+    invulnTimer = 1.2;
+    cameraShake = 0.25;
+    playSound('breakCube');
+    if (window.SB) { SB.vibrate('heavy'); SB.toast('🛡️ Shield saved you!'); }
+    updateUI();
+    updateFollowingBalls();
+}
+
+function consumeBarShield(bar) {
+    shieldActive = false;
+    bar.active = false; bar.mesh.visible = false;
+    spawnParticles(bar.mesh.position, new THREE.Color(0.4, 1, 0.9), 14);
     invulnTimer = 1.2;
     cameraShake = 0.25;
     playSound('breakCube');
@@ -3186,6 +3430,11 @@ function doRevive() {
     for (const wall of walls) {
         if (wall.active && wall.mesh.position.z > playerWorldZ - 2 && wall.mesh.position.z < playerWorldZ + 12) {
             wall.active = false; wall.mesh.visible = false;
+        }
+    }
+    for (const bar of bars) {
+        if (bar.active && bar.mesh.position.z > playerWorldZ - 2 && bar.mesh.position.z < playerWorldZ + 18) {
+            bar.active = false; bar.mesh.visible = false;
         }
     }
     updateFollowingBalls();
@@ -3573,6 +3822,7 @@ function resetGameState() {
     // Reset all pools
     for (const c of cubes) { c.active = false; c.mesh.visible = false; }
     for (const w of walls) { w.active = false; w.mesh.visible = false; }
+    for (const bar of bars) { bar.active = false; bar.mesh.visible = false; }
     for (const b of freeBallItems) { b.active = false; b.mesh.visible = false; }
     for (const m of megaBallItems) { m.active = false; m.mesh.visible = false; }
     for (const c of coinItems) { c.active = false; c.mesh.visible = false; }
@@ -3788,6 +4038,39 @@ function applyRoadCurve() {
         const bend = getCurveBend(dz);
         item.mesh.position.x = item.originalPos.x + curveX * bend;
         item.mesh.position.y = item.originalPos.y + curveY * bend;
+    }
+    for (const bar of bars) {
+        if (!bar.active) continue;
+        const dz = bar.originalPos.z - ballZ;
+        const bend = getCurveBend(dz);
+        bar.mesh.position.x = bar.originalPos.x + curveX * bend;
+        bar.mesh.position.y = bar.originalPos.y + curveY * bend;
+    }
+}
+
+// Animate the bar hazards: sweepers slide, blinking lasers pulse on/off.
+function updateBars(dt) {
+    for (const bar of bars) {
+        if (!bar.active) continue;
+        if (bar.kind === BAR_SWEEPER) {
+            bar.originalPos.x += bar.sweep * bar.sweepDir * dt;
+            if (bar.originalPos.x >= bar.sweepMax) { bar.originalPos.x = bar.sweepMax; bar.sweepDir = -1; }
+            else if (bar.originalPos.x <= bar.sweepMin) { bar.originalPos.x = bar.sweepMin; bar.sweepDir = 1; }
+        } else if (bar.kind === BAR_LASER) {
+            const m = bar.mesh.material;
+            if (bar.blink) {
+                bar.blinkT -= dt;
+                if (bar.blinkT <= 0) {
+                    bar.on = !bar.on;
+                    bar.blinkT = bar.on ? 0.7 : 0.5; // lit a touch longer than the safe gap
+                    if (bar.on) bar.hit = false;     // re-arm each time it lights up
+                }
+                m.emissiveIntensity = bar.on ? 1.0 : 0.06;
+                m.opacity = bar.on ? 0.9 : 0.22;
+            } else {
+                m.emissiveIntensity = 0.8 + Math.sin(Date.now() * 0.02) * 0.2;
+            }
+        }
     }
 }
 
@@ -4077,9 +4360,12 @@ function update() {
             // Normal gameplay
             gameTimer += dt;
 
-            // Speed up
+            // Speed up. Ramp to MAX_SPEED over SPEED_UP_DURATION, then keep a slow
+            // endless creep so a skilled player's reaction window never stops shrinking
+            // (research: successful runners never hard-cap speed).
             const speedChange = (MAX_SPEED - INITIAL_SPEED) / SPEED_UP_DURATION;
-            if (megaBallTimer <= 0 && velocity.z < MAX_SPEED) {
+            const speedCeiling = MAX_SPEED + Math.max(0, gameTimer - SPEED_UP_DURATION) * 0.06; // +~3.6/min forever
+            if (megaBallTimer <= 0 && velocity.z < speedCeiling) {
                 velocity.z += speedChange * dt;
             }
 
@@ -4208,6 +4494,9 @@ function update() {
         if (gameState === 'playing') {
             updateRoadCurve(dt);
         }
+
+        // Animate bar hazards (sweep / laser blink)
+        if (gameState === 'playing') updateBars(dt);
 
         // Ensure roads and patterns
         ensureRoadsAndPatterns();

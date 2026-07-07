@@ -1,5 +1,6 @@
 Snakeball_original
 .DS_Store
+.claude/
 .firebase/
 public/
 .gstack/
