@@ -204,17 +204,32 @@ class MainActivity : ComponentActivity() {
         })
     }
 
+    // Real ads run ONLY on a genuine Play Store production install. Debug, adb/sideload,
+    // or a directly-installed release APK all serve Google's TEST unit, so a self-tap
+    // during QA can never trigger an AdMob "invalid activity" suspension. Mirrors
+    // MinefieldSweeper/pow2 hardening — critical given Snakeball's prior strike.
+    // ⚠️ Play Store internal-test track STILL reports "com.android.vending" → real ads.
+    // Register that device via testDeviceIds in onCreate before tapping real ads there.
+    private fun useRealAds(): Boolean {
+        if (BuildConfig.DEBUG) return false
+        return try {
+            val installer = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                packageManager.getInstallSourceInfo(packageName).installingPackageName
+            } else {
+                @Suppress("DEPRECATION")
+                packageManager.getInstallerPackageName(packageName)
+            }
+            installer == "com.android.vending"
+        } catch (e: Exception) {
+            false // fail-safe: unknown installer → test ads (never risk the account)
+        }
+    }
+
     private fun loadRewardedAd() {
         val adRequest = AdRequest.Builder().build()
-        // Debug builds serve Google's official TEST rewarded unit (impressions/clicks
-        // never count toward the account → no "invalid activity" suspension risk during QA).
-        // Release builds (Play Console internal/prod) hit the real revenue unit.
-        // NOTE: signed internal-test tracks are release builds → real ads. Register your
-        // device under AdMob console test devices before tapping ads on those builds.
         val testAdUnitId = "ca-app-pub-3940256099942544/5224354917" // Google test rewarded (Android)
-        // TODO: replace with real AdMob ids before release
-        val realAdUnitId = "ca-app-pub-3940256099942544/5224354917"
-        val adUnitId = if (BuildConfig.DEBUG) testAdUnitId else realAdUnitId
+        val realAdUnitId = "ca-app-pub-1020671244071695/2878083384" // snakeball-android-rewarded
+        val adUnitId = if (useRealAds()) realAdUnitId else testAdUnitId
 
         RewardedAd.load(this, adUnitId,
             adRequest, object : RewardedAdLoadCallback() {

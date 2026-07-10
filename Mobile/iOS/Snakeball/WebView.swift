@@ -444,8 +444,8 @@ class RewardedAdManager: NSObject, FullScreenContentDelegate {
     private var rewardType = "reward"
 
     private let testAdUnitId = "ca-app-pub-3940256099942544/1712485313" // Google test rewarded
-    // TODO: replace with your real AdMob rewarded unit id before App Store release.
-    private let realAdUnitId = "ca-app-pub-3940256099942544/1712485313"
+    // Real rewarded unit (snakeball-ios-rewarded). Served only on non-internal builds.
+    private let realAdUnitId = "ca-app-pub-1020671244071695/3442437001"
     private var adUnitId: String { isInternalAdBuild ? testAdUnitId : realAdUnitId }
 
     init(coordinator: WebView.Coordinator) {

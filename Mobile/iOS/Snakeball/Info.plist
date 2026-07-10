@@ -43,7 +43,7 @@
 	<string>Snakeball</string>
 	<!-- TODO: replace with your real AdMob app id. This is Google's TEST app id. -->
 	<key>GADApplicationIdentifier</key>
-	<string>ca-app-pub-3940256099942544~1458002511</string>
+	<string>ca-app-pub-1020671244071695~2424833411</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>UIRequiresFullScreen</key>

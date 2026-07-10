@@ -52,8 +52,8 @@ android {
 
     buildTypes {
         release {
-            // TODO: replace with real AdMob app id before release
-            manifestPlaceholders["admobAppId"] = "ca-app-pub-3940256099942544~3347511713"
+            // Real AdMob app id (Snakeball Android). Debug default stays Google's test id.
+            manifestPlaceholders["admobAppId"] = "ca-app-pub-1020671244071695~8130410068"
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(
