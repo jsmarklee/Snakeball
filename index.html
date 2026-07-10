@@ -1535,6 +1535,8 @@ async function submitScore(score, pickupCoins) {
 // ============================================================
 let configPublic = null;   // getEconomyStatus 가 준 공개 설정 (표시가/canAfford 프리체크)
 let economyOnline = false; // 부팅 reconcile 성공 여부. false 면 소비 차단(캐시 읽기전용).
+let _economyRetryArmed = false; // 늦게 도착한 인증에 대한 재부팅 리스너 1회만 등록.
+let _economyBooting = false;    // bootEconomy 중복 실행 가드.
 
 // 단일 reconcile 지점. 어떤 핸들러 응답이든 여기서 state 에 반영 → refreshHUD + persist(cache).
 // 응답에 없는 필드는 건드리지 않는다(부분 응답 대응). opts.upOnly=true 면 coins/gems 를
@@ -1629,10 +1631,24 @@ async function submitEarn(kind, callName, payload) {
 // localStorage {coins,gems,owned_skins} 를 1회성 import payload 로 보낸다(서버가 게이트/캡).
 // 성공하면 economyOnline=true; 실패/auth-null 이면 캐시값 유지(읽기전용) + 소비 차단.
 async function bootEconomy() {
-    let uid = null;
-    try { uid = await whenAuthReady; } catch (e) { uid = null; }
-    if (!uid || !lbAvailable || !fbFns) { economyOnline = false; return; }
+    if (economyOnline || _economyBooting) return;
+    if (!lbAvailable || !fbFns || !fbAuth) { economyOnline = false; return; }
+    _economyBooting = true;
     try {
+        // whenAuthReady 는 8s 타임아웃으로 null 을 확정할 수 있다(느린 콜드 인증). 그 경우에도
+        // 인증은 뒤늦게 완료될 수 있으므로 currentUser 로 한 번 더 확인하고, 그래도 없으면
+        // onAuthStateChanged 로 인증이 도착하면 재부팅한다(앱을 오프라인으로 켰다가 온라인 전환도 커버).
+        let uid = null;
+        try { uid = await whenAuthReady; } catch (e) { uid = null; }
+        if (!uid && fbAuth.currentUser) uid = fbAuth.currentUser.uid;
+        if (!uid) {
+            economyOnline = false;
+            if (!_economyRetryArmed) {
+                _economyRetryArmed = true;
+                fbAuth.onAuthStateChanged((user) => { if (user && !economyOnline) bootEconomy(); });
+            }
+            return;
+        }
         const res = await fbFns.httpsCallable('getEconomyStatus')({
             coins: state.coins, gems: state.gems, owned_skins: state.owned,
         });
@@ -1642,6 +1658,8 @@ async function bootEconomy() {
         await flushPendingEarns();
     } catch (e) {
         economyOnline = false;
+    } finally {
+        _economyBooting = false;
     }
 }
 // 부팅 reconcile 로 잔액/가격이 바뀌면 열려있는 상점을 다시 그린다.
@@ -1655,6 +1673,7 @@ function renderShopIfOpen() {
 // ---------- Spend (server-authoritative) ----------
 // 성공 시 { ok:true, resp }. 오프라인/auth-null/에러 시 toast + { ok:false } — 로컬 지급 없음.
 async function spendCurrency(params) {
+    if (!economyOnline) { await bootEconomy(); }   // 늦은 인증/일시 실패 → 재부팅 1회 시도 후 판단
     if (!economyOnline) { toast('Store unavailable — check your connection'); return { ok: false, offline: true }; }
     if (!lbAvailable || !fbFns) { toast('Store unavailable — check your connection'); return { ok: false, offline: true }; }
     try {
