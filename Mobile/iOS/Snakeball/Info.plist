@@ -3,7 +3,8 @@
 <plist version="1.0">
 <dict>
 	<!-- Own URL scheme so sibling apps can detect Snakeball via canOpenURL.
-	     Must match games.json `scheme` (snakeball://). (플레이북 30 §11) -->
+	     hp-<codename> convention: hp-snake. Must match games.json `scheme`
+	     (hp-snake://). `snakeball` kept for backward-compat. (플레이북 30 §11) -->
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
@@ -13,16 +14,28 @@
 			<string>studio.hodgepodge.snakeball</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
+				<string>hp-snake</string>
 				<string>snakeball</string>
 			</array>
 		</dict>
 	</array>
 	<!-- Sibling schemes probed for cross-promo install detection. Each must match
-	     that sibling's own CFBundleURLSchemes + games.json `scheme`. -->
+	     that sibling's own CFBundleURLSchemes + games.json `scheme` (_reservedSchemes).
+	     All known Hodgepodge titles pre-declared so a future sibling needs no
+	     re-release of this app. -->
 	<key>LSApplicationQueriesSchemes</key>
 	<array>
-		<string>mineta</string>
-		<string>pow2</string>
+		<string>hp-mineta</string>
+		<string>hp-pow2</string>
+		<string>hp-cube</string>
+		<string>hp-iron</string>
+		<string>hp-kart</string>
+		<string>hp-olympic</string>
+		<string>hp-ninja</string>
+		<string>hp-night</string>
+		<string>hp-sky</string>
+		<string>hp-snarl</string>
+		<string>hp-slots</string>
 	</array>
 	<key>CFBundleDisplayName</key>
 	<string>Snakeball</string>

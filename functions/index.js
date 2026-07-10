@@ -15,6 +15,7 @@ const { initializeApp } = require("firebase-admin/app");
 const { getFirestore, FieldValue } = require("firebase-admin/firestore");
 const { checkBlocklist } = require("./blocklist");
 const { verifyAndFulfill } = require("./iapVerification");
+const coin = require("./coinSystem");
 
 initializeApp();
 const db = getFirestore();
@@ -130,7 +131,7 @@ exports.submitScore = onCall({ region: REGION, minInstances: 1 }, async (request
     throw new HttpsError("unauthenticated", "인증이 필요합니다.");
   }
   const uid = request.auth.uid;
-  const { sessionToken, score, name } = request.data || {};
+  const { sessionToken, score, name, pickupCoins } = request.data || {};
 
   if (!sessionToken || typeof sessionToken !== "string") {
     throw new HttpsError("invalid-argument", "sessionToken이 필요합니다.");
@@ -232,7 +233,17 @@ exports.submitScore = onCall({ region: REGION, minInstances: 1 }, async (request
     .get();
   const rank = higherSnap.size + 1;
 
-  return { best, rank };
+  // ── 5) per-run 코인 획득(서버 권위) fold-in ──
+  // PB 분기 밖 — 신기록이 아니어도 매 런 코인을 번다(FC1/FC7). 세션이 이미 used 처리돼
+  // 세션당 1회만 지급된다. 코인 지급 실패가 점수 제출을 막지 않도록 방어적으로 감싼다.
+  let coinResult = { coins: undefined, earned: 0 };
+  try {
+    coinResult = await coin.grantRunCoins(uid, score, pickupCoins, elapsedSeconds);
+  } catch (err) {
+    console.error("grantRunCoins failed (score still recorded):", err);
+  }
+
+  return { best, rank, coins: coinResult.coins, earned: coinResult.earned };
 });
 
 /**
@@ -495,6 +506,12 @@ exports.claimCrossPromoReward = onCall({ region: REGION, minInstances: 1 }, asyn
     }
     const grant = Math.min(reward, CROSSPROMO_LIFETIME_MAX_COINS - spentTotal);
 
+    // 서버 권위 잔액에 코인 반영(단일 라이터). t.get(ref) 는 위에서 이미 수행됨 —
+    // idempotencyToken 없이 호출하므로 applyBalanceDelta 는 추가 read 를 하지 않는다.
+    const bal = await coin.applyBalanceDelta(t, ref, data,
+      { coins: grant },
+      { reason: "crosspromo", source: gameId });
+
     t.set(ref, {
       crossPromoClaimed: [...claimed, gameId],
       crossPromoCoinsTotal: spentTotal + grant,
@@ -502,9 +519,112 @@ exports.claimCrossPromoReward = onCall({ region: REGION, minInstances: 1 }, asyn
       createdAt: data.createdAt || FieldValue.serverTimestamp(),
     }, { merge: true });
 
-    // 지급액만 반환 — 코인 잔액은 클라(localStorage)가 들고 있다.
-    return { reward: grant, gameId };
+    // 지급액 + 서버 권위 새 잔액 반환.
+    return { reward: grant, gameId, coins: bal.coins };
   });
+});
+
+// ─── 서버 권위 경제 (코인 + 젬) ────────────────────────────────
+// coinSystem.js 의 코어 로직을 얇은 onCall 래퍼로 노출. coinSystem 은 코드화된 plain
+// Error 를 throw 하고, 여기서 HttpsError 로 매핑한다(verifyAndFulfill 매핑과 동일 패턴).
+
+function mapEconomyError(err) {
+  if (err instanceof HttpsError) return err;
+  const m = (err && err.message) || "";
+  const MAP = {
+    USER_NOT_FOUND: ["not-found", "유저 데이터를 찾을 수 없습니다."],
+    ACCOUNT_MIGRATED: ["failed-precondition", "복구된 계정입니다. 앱을 재시작해주세요."],
+    INSUFFICIENT_COINS: ["failed-precondition", "코인이 부족합니다."],
+    INSUFFICIENT_GEMS: ["failed-precondition", "젬이 부족합니다."],
+    DUPLICATE_CALLBACK: ["already-exists", "이미 처리된 요청입니다."],
+    RATE_LIMITED: ["resource-exhausted", "잠시 후 다시 시도해주세요."],
+    REWARDED_LIMIT_REACHED: ["resource-exhausted", "오늘 보상 한도에 도달했습니다."],
+    REVIVE_LIMIT_REACHED: ["resource-exhausted", "오늘 부활 한도에 도달했습니다."],
+    ALREADY_OWNED: ["already-exists", "이미 보유한 스킨입니다."],
+    ALREADY_CLAIMED: ["already-exists", "이미 받았습니다."],
+    ALREADY_DOUBLED: ["already-exists", "이미 받았습니다."],
+    UNKNOWN_SKIN: ["invalid-argument", "알 수 없는 스킨입니다."],
+    UNKNOWN_POWERUP: ["invalid-argument", "알 수 없는 파워업입니다."],
+    UNKNOWN_MISSION: ["invalid-argument", "알 수 없는 미션입니다."],
+    INVALID_SPEND_REASON: ["invalid-argument", "잘못된 요청입니다."],
+    INVALID_CONTEXT: ["invalid-argument", "잘못된 요청입니다."],
+    SESSION_NOT_FOUND: ["not-found", "세션을 찾을 수 없습니다."],
+    SESSION_NOT_OWNED: ["permission-denied", "세션 소유자가 아닙니다."],
+  };
+  if (MAP[m]) return new HttpsError(MAP[m][0], MAP[m][1]);
+  console.error("economy error:", err);
+  return new HttpsError("internal", "처리에 실패했습니다.");
+}
+
+/**
+ * getEconomyStatus — 부팅 시 서버 권위 경제 상태 조회 + lazy-init + KST 리셋.
+ * 입력: { coins?, gems?, owned_skins? } — 1회성 캡드 임포트(FC2) 게이트에서만 사용.
+ * 반환: coinSystem.buildStatusResponse 형태(coins/gems/owned_skins/powerups/daily/
+ *       missions/*_remaining/config_public).
+ */
+exports.getEconomyStatus = onCall({ region: REGION }, async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "인증이 필요합니다.");
+  try {
+    return await coin.getEconomyStatus(request.auth.uid, request.data || {});
+  } catch (err) {
+    throw mapEconomyError(err);
+  }
+});
+
+/**
+ * spendCurrency — 서버 권위 소비. 비용은 config 에서만 읽는다.
+ * 입력: { reason:'skin'|'powerup'|'revive', itemId?, sessionToken? }.
+ */
+exports.spendCurrency = onCall({ region: REGION }, async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "인증이 필요합니다.");
+  try {
+    return await coin.spendCurrency(request.auth.uid, request.data || {});
+  } catch (err) {
+    throw mapEconomyError(err);
+  }
+});
+
+/**
+ * rewardFromAd — bounded-trust rewarded 처리(adToken 멱등).
+ * 입력: { adToken, context:'double_coins'|'revive' }.
+ */
+exports.rewardFromAd = onCall({ region: REGION }, async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "인증이 필요합니다.");
+  const { adToken, context } = request.data || {};
+  try {
+    return await coin.rewardFromAd(request.auth.uid, adToken, context);
+  } catch (err) {
+    throw mapEconomyError(err);
+  }
+});
+
+/**
+ * claimDaily — 서버가 스트릭 계산 + KST 하루 1회 멱등(FC3).
+ */
+exports.claimDaily = onCall({ region: REGION }, async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "인증이 필요합니다.");
+  try {
+    return await coin.claimDaily(request.auth.uid);
+  } catch (err) {
+    throw mapEconomyError(err);
+  }
+});
+
+/**
+ * claimMission — missionId+날짜 멱등 claim(진행도는 클라, FC3).
+ * 입력: { missionId }.
+ */
+exports.claimMission = onCall({ region: REGION }, async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "인증이 필요합니다.");
+  const { missionId } = request.data || {};
+  if (!missionId || typeof missionId !== "string") {
+    throw new HttpsError("invalid-argument", "missionId가 필요합니다.");
+  }
+  try {
+    return await coin.claimMission(request.auth.uid, missionId);
+  } catch (err) {
+    throw mapEconomyError(err);
+  }
 });
 
 // ─── IAP 영수증 검증 ──────────────────────────────────────────

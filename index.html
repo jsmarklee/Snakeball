@@ -726,9 +726,19 @@ function detectPlatform() {
 const platform = detectPlatform();
 const bridgeCallbacks = {};
 window.__bridgeCallbacks = (name, data) => { bridgeCallbacks[name]?.(data); };
+// 마지막으로 요청한 rewarded 광고의 고유 adToken (native 콜백 라우팅 fallback).
+let _pendingAdToken = null;
 window.__adRewardCallback = (success, type, amount) => {
-    bridgeCallbacks['adReward']?.({ success, type, amount });
+    // native 가 우리가 넘긴 customData(고유 adToken)를 `type` 으로 echo 한다.
+    // echo 하지 않는 구버전 대비 in-flight 토큰으로 fallback. (installCheck 패턴)
+    const key = (type && bridgeCallbacks[type]) ? type : _pendingAdToken;
+    if (key && bridgeCallbacks[key]) bridgeCallbacks[key]({ success, type, amount });
 };
+// crypto.randomUUID 로 매 rewarded 호출마다 고유 adToken 생성 (rewardFromAd 멱등 키).
+function newAdToken() {
+    try { if (window.crypto && crypto.randomUUID) return crypto.randomUUID(); } catch (e) {}
+    return 'ad-' + Date.now() + '-' + Math.random().toString(36).slice(2);
+}
 function postNative(handler, action, data = {}) {
     if (platform === 'ios') {
         window.webkit?.messageHandlers?.[handler]?.postMessage({ action, ...data });
@@ -829,7 +839,10 @@ if (platform === 'ios') {
 }
 
 // Show a rewarded ad. Resolves true if reward earned, false otherwise.
-function showRewardedAd() {
+// adToken: 매 호출 고유 ID (native 콜백 키 + 서버 rewardFromAd 멱등). 호출자가 넘긴
+// 같은 토큰을 이후 rewardFromAd 로 스레드한다.
+function showRewardedAd(adToken) {
+    const token = adToken || newAdToken();
     // Web / dev: simulate a successful short ad.
     if (platform === 'web') {
         return new Promise((resolve) => {
@@ -860,22 +873,21 @@ function showRewardedAd() {
             } catch (e) { resolve(false); }
         });
     }
-    // iOS / Android native
+    // iOS / Android native — 콜백을 고유 adToken 으로 격리(고정 'reward' 키 제거).
     return new Promise((resolve) => {
+        _pendingAdToken = token;
+        const cleanup = () => { delete bridgeCallbacks[token]; if (_pendingAdToken === token) _pendingAdToken = null; };
         // Safety timeout: if a native ad delegate never fires (SDK edge case),
         // don't soft-lock the revive / double-coins flow — resolve as not-rewarded.
         const t = setTimeout(() => {
-            if (bridgeCallbacks['adReward']) {
-                delete bridgeCallbacks['adReward'];
-                resolve(false);
-            }
+            if (bridgeCallbacks[token]) { cleanup(); resolve(false); }
         }, 45000);
-        bridgeCallbacks['adReward'] = (data) => {
+        bridgeCallbacks[token] = (data) => {
             clearTimeout(t);
-            delete bridgeCallbacks['adReward'];
+            cleanup();
             resolve(!!data?.success);
         };
-        postNative('adHandler', 'showRewardedAd', { customData: 'reward' });
+        postNative('adHandler', 'showRewardedAd', { customData: token });
     });
 }
 
@@ -1074,33 +1086,33 @@ function completedUnclaimed() {
     const m = ensureMissions();
     return m.list.filter(e => !e.claimed && e.progress >= (missionDef(e.id)?.target || Infinity)).length;
 }
-function claimMission(id) {
+async function claimMission(id) {
     const m = ensureMissions();
     const entry = m.list.find(e => e.id === id);
     const def = missionDef(id);
     if (!entry || !def || entry.claimed) return;
     if (entry.progress < def.target) return;
-    entry.claimed = true;
-    grant(def.reward);
+    entry.claimed = true;              // 낙관적 로컬 마크(재청구 방지). 코인은 서버가 지급.
     vibrate('success');
     persist();
     renderMissions(); updateBadges();
     toast('Mission complete! ' + rewardText(def.reward));
+    await submitEarn('claimMission', 'claimMission', { missionId: id });
 }
 
 // ---------- Daily reward ----------
 function dailyAvailable() { return state.daily.last !== today(); }
-function claimDaily() {
+async function claimDaily() {
     if (!dailyAvailable()) return;
     const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
     const streak = state.daily.last === yesterday ? Math.min(state.daily.streak + 1, 7) : 1;
     const reward = DAILY_REWARDS[(streak - 1) % 7];
-    state.daily = { last: today(), streak };
-    grant(reward);
+    state.daily = { last: today(), streak };   // 낙관적 로컬(재청구 방지). 코인/젬은 서버 지급.
     vibrate('success');
     persist();
     renderDaily(); updateBadges();
     toast('Day ' + streak + ' reward! ' + rewardText(reward));
+    await submitEarn('claimDaily', 'claimDaily', {});
 }
 
 function rewardText(r) {
@@ -1242,15 +1254,23 @@ function renderShop() {
     body.querySelectorAll('[data-equip]').forEach(b => b.onclick = () => {
         state.skin = b.dataset.equip; persist(); vibrate('light'); renderShop(); applySkinHook();
     });
-    body.querySelectorAll('[data-buyskin]').forEach(b => b.onclick = () => {
+    body.querySelectorAll('[data-buyskin]').forEach(b => b.onclick = async () => {
         const s = SKINS.find(x => x.id === b.dataset.buyskin);
-        if (payCost(s.cost)) { state.owned.push(s.id); state.skin = s.id; persist(); vibrate('success'); renderShop(); applySkinHook(); toast('Unlocked ' + s.name + '!'); }
-        else toast('Not enough ' + (s.cost.gems ? 'gems' : 'coins'));
+        if (!s) return;
+        if (!canAfford(s.cost)) { toast('Not enough ' + (s.cost.gems ? 'gems' : 'coins')); return; }
+        b.disabled = true;
+        const r = await spendCurrency({ reason: 'skin', itemId: s.id });
+        b.disabled = false;
+        if (r.ok) { state.skin = s.id; persist(); vibrate('success'); renderShop(); applySkinHook(); toast('Unlocked ' + s.name + '!'); }
     });
-    body.querySelectorAll('[data-buypu]').forEach(b => b.onclick = () => {
+    body.querySelectorAll('[data-buypu]').forEach(b => b.onclick = async () => {
         const p = POWERUPS.find(x => x.id === b.dataset.buypu);
-        if (payCost(p.cost)) { state.powerups[p.id] = (state.powerups[p.id]||0)+1; persist(); vibrate('success'); renderShop(); renderPowerupRow(); toast('Got ' + p.name + '!'); }
-        else toast('Not enough coins');
+        if (!p) return;
+        if (!canAfford(p.cost)) { toast('Not enough coins'); return; }
+        b.disabled = true;
+        const r = await spendCurrency({ reason: 'powerup', itemId: p.id });
+        b.disabled = false;
+        if (r.ok) { vibrate('success'); renderShop(); renderPowerupRow(); toast('Got ' + p.name + '!'); }
     });
     body.querySelectorAll('[data-buyiap]').forEach(b => b.onclick = async () => {
         b.disabled = true;
@@ -1482,19 +1502,198 @@ async function startRun() {
 }
 
 // submitScore — 1회성 토큰으로 점수 제출. 성공 시 myStanding 저장.
-async function submitScore(score) {
+async function submitScore(score, pickupCoins) {
     if (!lbAvailable || !fbFns || !sessionToken || !Number.isFinite(score)) return;
     const token = sessionToken;
     sessionToken = null;        // 1회성 — 즉시 비워 중복 제출 방지
+    const payload = {
+        sessionToken: token,
+        score: Math.round(score),
+        name: state.name || undefined,
+        pickupCoins: Number.isFinite(pickupCoins) ? Math.max(0, Math.floor(pickupCoins)) : 0,
+    };
     try {
-        const res = await fbFns.httpsCallable('submitScore')({
-            sessionToken: token,
-            score: Math.round(score),
-            name: state.name || undefined,
-        });
-        if (res?.data) myStanding = { best: res.data.best, rank: res.data.rank };
-    } catch (e) { /* 백엔드 미배포/오프라인 등 — 조용히 무시 */ }
+        const res = await fbFns.httpsCallable('submitScore')(payload);
+        if (res?.data) {
+            myStanding = { best: res.data.best, rank: res.data.rank };
+            // 서버가 이 런의 코인을 지급 → up-only reconcile (로컬 낙관값 아래로 안 내림, FC5).
+            applyServerBalance({ coins: res.data.coins }, { upOnly: true });
+        }
+    } catch (e) {
+        // 세션은 있었으나 전송이 네트워크성 실패 → 저장된 토큰으로 큐잉(replay 멱등, FC6).
+        if (isTransientEarnError(e)) enqueueEarn({ type: 'submitScore', payload });
+    }
 }
+
+// ============================================================
+// SERVER-AUTHORITATIVE ECONOMY (client side)
+//
+// 부팅 시 getEconomyStatus 로 서버 잔액을 권위 로드하고, 이후 localStorage 는 읽기
+// 캐시일 뿐이다(진실의 원천 아님). 모든 소비/획득은 서버 콜을 거친다. 60fps 루프는
+// 절대 await 하지 않는다 — 모든 서버콜은 pause 지점(gameover/quit/shop/revive/daily/
+// mission)에서만 일어난다. 설계: docs/economy-migration-design.md (FC1~FC7).
+// ============================================================
+let configPublic = null;   // getEconomyStatus 가 준 공개 설정 (표시가/canAfford 프리체크)
+let economyOnline = false; // 부팅 reconcile 성공 여부. false 면 소비 차단(캐시 읽기전용).
+
+// 단일 reconcile 지점. 어떤 핸들러 응답이든 여기서 state 에 반영 → refreshHUD + persist(cache).
+// 응답에 없는 필드는 건드리지 않는다(부분 응답 대응). opts.upOnly=true 면 coins/gems 를
+// 로컬 낙관값보다 낮게 내리지 않는다(FC5 — 미동기화된 이전 획득 보호). 소비/부팅은 upOnly 없이.
+function applyServerBalance(resp, opts = {}) {
+    if (!resp) return;
+    const upOnly = !!opts.upOnly;
+    if (typeof resp.coins === 'number' && (!upOnly || resp.coins >= state.coins)) state.coins = resp.coins;
+    if (typeof resp.gems === 'number' && (!upOnly || resp.gems >= state.gems)) state.gems = resp.gems;
+    if (Array.isArray(resp.owned_skins)) state.owned = resp.owned_skins.slice();
+    if (resp.powerups && typeof resp.powerups === 'object') {
+        state.powerups = { headstart: 0, magnet: 0, shield: 0, ...resp.powerups };
+    }
+    if (resp.config_public) adoptConfigPublic(resp.config_public);
+    refreshHUD();
+    persist();
+}
+
+// config_public 을 표시 카탈로그(SKINS/POWERUPS cost)에 반영 → 표시가 == 서버 청구가(FC7).
+function adoptConfigPublic(cfg) {
+    if (!cfg) return;
+    configPublic = cfg;
+    if (cfg.skin_costs) {
+        for (const s of SKINS) if (cfg.skin_costs[s.id]) s.cost = { ...cfg.skin_costs[s.id] };
+    }
+    if (cfg.powerup_costs) {
+        for (const p of POWERUPS) if (cfg.powerup_costs[p.id] != null) p.cost = { coins: cfg.powerup_costs[p.id] };
+    }
+}
+
+// 젬 부활 표시가 (base + step * reviveIndex). reviveIndex 는 이번 런에서의 부활 횟수.
+function reviveGemCost(reviveIndex) {
+    const base = configPublic?.revive_gem_base ?? 5;
+    const step = configPublic?.revive_gem_step ?? 5;
+    return base + step * (reviveIndex || 0);
+}
+
+// ---------- Offline earn queue (FC6) ----------
+// endRun(submitScore)/claim 이 오프라인으로 실패하면 여기 저장했다가 다음 부팅에 flush.
+// 각 아이템은 STORED 토큰을 재사용(재생성 X). DUPLICATE/이미처리 에러는 terminal SUCCESS 로
+// 간주하고 dequeue. 소비(spend)는 큐잉하지 않는다.
+const PENDING_KEY = 'sb_pending_earns';
+function loadPending() { const q = load(PENDING_KEY, []); return Array.isArray(q) ? q : []; }
+function savePending(q) { save(PENDING_KEY, q); }
+function enqueueEarn(item) { const q = loadPending(); q.push(item); savePending(q); }
+
+// terminal(=dequeue) vs transient(=재시도 유지) 판정. 이미처리/무효는 terminal, 네트워크성만 유지.
+function isTransientEarnError(e) {
+    const c = (e && e.code) || '';
+    return c.includes('unavailable') || c.includes('internal') || c.includes('unknown') || c === '';
+}
+
+async function flushPendingEarns() {
+    if (!lbAvailable || !fbFns) return;
+    let q = loadPending();
+    if (!q.length) return;
+    const remaining = [];
+    for (const item of q) {
+        try {
+            let res;
+            if (item.type === 'submitScore') res = await fbFns.httpsCallable('submitScore')(item.payload || {});
+            else if (item.type === 'claimDaily') res = await fbFns.httpsCallable('claimDaily')();
+            else if (item.type === 'claimMission') res = await fbFns.httpsCallable('claimMission')(item.payload || {});
+            else continue; // unknown type → drop
+            applyServerBalance(res?.data, { upOnly: true });
+        } catch (e) {
+            if (isTransientEarnError(e)) remaining.push(item); // 네트워크성 → 유지
+            // else: DUPLICATE/이미처리/무효 → terminal SUCCESS 로 dequeue (아무것도 안 함)
+        }
+    }
+    savePending(remaining);
+}
+
+// 획득 콜 공통 래퍼: 서버 호출 → applyServerBalance(up-only). 오프라인/전송실패 시 큐잉.
+// kind: 큐 아이템 type, callName: cloud function, payload: 요청/큐 payload.
+async function submitEarn(kind, callName, payload) {
+    if (!lbAvailable || !fbFns) { enqueueEarn({ type: kind, payload }); return null; }
+    try {
+        const uid = await whenAuthReady;
+        if (!uid) { enqueueEarn({ type: kind, payload }); return null; }
+        const res = await fbFns.httpsCallable(callName)(payload || {});
+        applyServerBalance(res?.data, { upOnly: true });
+        return res?.data || null;
+    } catch (e) {
+        if (isTransientEarnError(e)) enqueueEarn({ type: kind, payload });
+        return null; // terminal(이미처리 등) → 로컬 낙관 상태 유지, 큐잉 안 함
+    }
+}
+
+// ---------- Boot reconcile ----------
+// whenAuthReady 후 getEconomyStatus 로 서버 권위 상태 로드. 최초 부팅에 한해 현재
+// localStorage {coins,gems,owned_skins} 를 1회성 import payload 로 보낸다(서버가 게이트/캡).
+// 성공하면 economyOnline=true; 실패/auth-null 이면 캐시값 유지(읽기전용) + 소비 차단.
+async function bootEconomy() {
+    let uid = null;
+    try { uid = await whenAuthReady; } catch (e) { uid = null; }
+    if (!uid || !lbAvailable || !fbFns) { economyOnline = false; return; }
+    try {
+        const res = await fbFns.httpsCallable('getEconomyStatus')({
+            coins: state.coins, gems: state.gems, owned_skins: state.owned,
+        });
+        applyServerBalance(res?.data);   // 부팅은 권위 — down reconcile 허용(치트값 제거)
+        economyOnline = true;
+        renderShopIfOpen();
+        await flushPendingEarns();
+    } catch (e) {
+        economyOnline = false;
+    }
+}
+// 부팅 reconcile 로 잔액/가격이 바뀌면 열려있는 상점을 다시 그린다.
+function renderShopIfOpen() {
+    try {
+        const modal = $('shop-modal');
+        if (modal && modal.classList.contains('open')) renderShop();
+    } catch (e) {}
+}
+
+// ---------- Spend (server-authoritative) ----------
+// 성공 시 { ok:true, resp }. 오프라인/auth-null/에러 시 toast + { ok:false } — 로컬 지급 없음.
+async function spendCurrency(params) {
+    if (!economyOnline) { toast('Store unavailable — check your connection'); return { ok: false, offline: true }; }
+    if (!lbAvailable || !fbFns) { toast('Store unavailable — check your connection'); return { ok: false, offline: true }; }
+    try {
+        const uid = await whenAuthReady;
+        if (!uid) { toast('Store unavailable — check your connection'); return { ok: false, offline: true }; }
+        const data = { ...params };
+        if (params.reason === 'revive') data.sessionToken = sessionToken;
+        const res = await fbFns.httpsCallable('spendCurrency')(data);
+        applyServerBalance(res?.data);   // 소비는 down reconcile 정상
+        return { ok: true, resp: res?.data || null };
+    } catch (e) {
+        const c = (e && e.code) || '';
+        if (c.includes('failed-precondition')) toast('Not enough — ' + (params.reason === 'revive' ? 'gems' : 'coins'));
+        else if (c.includes('already-exists')) toast('Already owned');
+        else toast('Purchase failed — try again');
+        return { ok: false, error: e };
+    }
+}
+
+// ---------- Rewarded-ad grant (server-authoritative) ----------
+// adToken 은 showRewardedAd 에 넘긴 것과 동일해야 한다(멱등). context: 'double_coins'|'revive'.
+async function rewardFromAd(adToken, context) {
+    if (!lbAvailable || !fbFns) return { ok: false, offline: true };
+    try {
+        const uid = await whenAuthReady;
+        if (!uid) return { ok: false, offline: true };
+        const res = await fbFns.httpsCallable('rewardFromAd')({ adToken, context });
+        applyServerBalance(res?.data, { upOnly: true });
+        return { ok: true, resp: res?.data || null, granted: res?.data?.granted || 0 };
+    } catch (e) {
+        // 이미 서버가 지급한 요청(응답 유실 후 재시도, 또는 런당 1회 초과)은 성공으로 처리한다.
+        // 아니면 광고를 봤는데 "실패"로 떠서 유저가 계속 재시청하는 루프가 생긴다(코인은 이미 지급됨).
+        const c = (e && e.code) || '';
+        if (c.includes('already-exists')) return { ok: true, granted: 0, alreadyGranted: true };
+        return { ok: false, error: e };
+    }
+}
+
+bootEconomy();
 
 // Firestore read엔 자체 타임아웃이 없다 — hang한 read는 resolve/reject를 안 해
 // 스피너가 영원히 돈다. Promise.race로 타임아웃을 직접 씌워 catch에서 []로 떨어지게.
@@ -1652,9 +1851,9 @@ async function promptName() {
 // Fail-silent everywhere — any error behaves as if there are no games, so the
 // menu/settings are never blocked or broken by this feature.
 //
-// ⚠️ Snakeball 경제(코인/젬)는 localStorage라 서버가 잔액을 들고 있지 않다. 서버
-//    함수(claimCrossPromoReward)는 "청구 자격"만 권위 판정(게임당 1회·rate limit·
-//    평생 상한)하고 지급 코인 수를 반환 — 실제 지급은 클라가 SB.addCoins로 로컬 반영.
+// 서버 함수(claimCrossPromoReward)가 "청구 자격"(게임당 1회·rate limit·평생 상한)과
+//    실제 지급을 모두 서버 권위로 처리하고, 갱신된 코인 잔액을 반환 — 클라는
+//    applyServerBalance(up-only)로 그 잔액을 반영한다(로컬 지급 아님).
 // ============================================================
 const XP_CONFIG_URL = 'https://www.hodgepodge.studio/games.json';
 const XP_CLAIMED_KEY = 'sb_xpromo_claimed';   // gameIds 이미 보상 받음
@@ -1795,7 +1994,7 @@ async function claimCrossPromoRewardServer(gameId) {
         const uid = await whenAuthReady;
         if (!uid) return { success: false, offline: true };
         const res = await fbFns.httpsCallable('claimCrossPromoReward')({ gameId });
-        return { success: true, reward: res?.data?.reward || 0 };
+        return { success: true, reward: res?.data?.reward || 0, coins: res?.data?.coins };
     } catch (e) {
         const c = e?.code || '';
         if (c.includes('already-exists')) return { success: false, alreadyClaimed: true };
@@ -1827,10 +2026,10 @@ async function xpromoOnResume() {
                 _xpMarkClaimedLocal(gameId);
                 _xpClearArmed(gameId);
                 if (result.reward > 0) {
-                    addCoins(result.reward, true);   // 보상 토스트는 아래에서 직접
+                    // 서버 권위 잔액 반영(로컬 addCoins 아님). up-only 로 미동기화 획득 보호.
+                    applyServerBalance({ coins: result.coins }, { upOnly: true });
                     vibrate('success');
                     toast('🎉 설치 보상 +' + result.reward + ' 🪙');
-                    refreshHUD();
                 }
                 renderXpromoGames();
             } else if (result.alreadyClaimed || result.notEligible) {
@@ -1985,6 +2184,9 @@ window.SB = {
     onTap,
     vibrate,
     addCoins, addGems, spendGems, spendCoins,
+    // ---- Server-authoritative economy ----
+    newAdToken, rewardFromAd, spendCurrency, reviveGemCost,
+    economyOnline: () => economyOnline,
     activeSkin,
     armedPowerups, consumeArmed,
     reportRun,
@@ -3356,7 +3558,7 @@ let reviveInterval = null;
 function showReviveScreen() {
     gameState = 'revive';
     // throw the trailing balls for drama but keep run alive
-    const gemCost = 5 + revivesUsed * 5;
+    const gemCost = window.SB ? SB.reviveGemCost(revivesUsed) : (5 + revivesUsed * 5);
     document.getElementById('revive-gem-cost').textContent = gemCost;
     const gemBtn = document.getElementById('revive-gem');
     gemBtn.disabled = (window.SB && SB.state.gems < gemCost);
@@ -3398,8 +3600,14 @@ async function reviveVia(method) {
         if (!rewarded) { showReviveScreen(); return; } // re-arm countdown if ad failed
         doRevive();
     } else if (method === 'gem') {
-        const gemCost = 5 + revivesUsed * 5;
-        if (window.SB && !SB.spendGems(gemCost)) { SB.toast('Not enough gems'); showReviveScreen(); return; }
+        const gemCost = window.SB ? SB.reviveGemCost(revivesUsed) : (5 + revivesUsed * 5);
+        if (window.SB && SB.state.gems < gemCost) { SB.toast('Not enough gems'); showReviveScreen(); return; }
+        const gemBtn = document.getElementById('revive-gem');
+        if (gemBtn) gemBtn.disabled = true;
+        // 서버 권위 소비 — 비용/부활카운트는 서버 세션 기준(FC4). sessionToken 은 내부 주입.
+        const r = window.SB ? await SB.spendCurrency({ reason: 'revive' }) : { ok: true };
+        if (gemBtn) gemBtn.disabled = false;
+        if (!r.ok) { showReviveScreen(); return; }   // toast 는 spendCurrency 가 표시
         doRevive();
     }
 }
@@ -3674,15 +3882,15 @@ function quitToMenu() {
     const finalScore = score + Math.floor(gameTimer);
     const earned = runCoins + Math.floor(finalScore / 10);
     if (window.SB) {
-        SB.addCoins(earned, true);
+        SB.addCoins(earned, true);   // 낙관적 표시 — submitScore 가 서버값으로 up-only reconcile
         SB.reportRun({
             score: finalScore, coins: runCoins, cubes: cubesBrokenThisRun,
             megas: megasThisRun, revived: revivesUsed, combo: bestComboThisRun, balls: ballCountPeak,
         });
         SB.consumeArmed();
         if (earned > 0) SB.toast('🪙 +' + earned + ' earned');
-        // 온라인 글로벌 리더보드 점수 제출 (실패 무시)
-        SB.submitScore && SB.submitScore(finalScore);
+        // 서버 권위 코인 획득 + 온라인 글로벌 리더보드 점수 제출 (pickupCoins=runCoins)
+        SB.submitScore && SB.submitScore(finalScore, runCoins);
         // 네이티브 리더보드(Game Center / Play Games)에도 추가 제출
         SB.submitNativeScore && SB.submitNativeScore(finalScore);
     }
@@ -3870,7 +4078,7 @@ function finalizeGameOver() {
     // ---- Coin reward: collected coins + score bonus ----
     lastRunBaseCoins = runCoins + Math.floor(finalScore / 10);
     coinsDoubled = false;
-    if (window.SB) SB.addCoins(lastRunBaseCoins, true);
+    if (window.SB) SB.addCoins(lastRunBaseCoins, true);   // 낙관적 표시 — submitScore 가 서버값으로 reconcile
     document.getElementById('result-coins-amount').textContent = lastRunBaseCoins;
 
     // ---- Report run for missions / stats ----
@@ -3887,8 +4095,8 @@ function finalizeGameOver() {
         SB.consumeArmed();
     }
 
-    // ---- 온라인 글로벌 리더보드 점수 제출 (실패 무시) ----
-    window.SB && SB.submitScore && SB.submitScore(finalScore);
+    // ---- 서버 권위 코인 획득 + 온라인 글로벌 리더보드 점수 제출 (pickupCoins=runCoins) ----
+    window.SB && SB.submitScore && SB.submitScore(finalScore, runCoins);
     // ---- 네이티브 리더보드(Game Center / Play Games)에도 추가 제출 ----
     window.SB && SB.submitNativeScore && SB.submitNativeScore(finalScore);
 
@@ -3923,14 +4131,18 @@ async function doubleCoins() {
     if (coinsDoubled || lastRunBaseCoins <= 0) return;
     const dbl = document.getElementById('double-coins');
     dbl.disabled = true;
-    const rewarded = window.SB ? await SB.showRewardedAd() : true;
+    // 고유 adToken 을 생성해 광고와 서버 지급에 동일하게 스레드(멱등).
+    const adToken = window.SB ? SB.newAdToken() : null;
+    const rewarded = window.SB ? await SB.showRewardedAd(adToken) : true;
     if (!rewarded) { dbl.disabled = false; return; }
+    // 서버 권위 지급 — 서버가 이 런의 base 코인을 재계산해 지급(로컬 addCoins 제거).
+    const r = window.SB ? await SB.rewardFromAd(adToken, 'double_coins') : { ok: false };
+    if (!r.ok) { dbl.disabled = false; if (window.SB) SB.toast('Reward failed — try again'); return; }
     coinsDoubled = true;
-    if (window.SB) SB.addCoins(lastRunBaseCoins, true);
-    const total = lastRunBaseCoins * 2;
-    document.getElementById('result-coins-amount').textContent = total;
+    const granted = r.granted || lastRunBaseCoins;
+    document.getElementById('result-coins-amount').textContent = lastRunBaseCoins + granted;
     dbl.style.display = 'none';
-    if (window.SB) { SB.vibrate('success'); SB.toast('🪙 Doubled! +' + lastRunBaseCoins); }
+    if (window.SB) { SB.vibrate('success'); SB.toast('🪙 Doubled! +' + granted); }
 }
 
 // Button handlers
