@@ -39,7 +39,7 @@
 - **iOS 하드닝**(`WebView.swift`, **재빌드 필요**): `window.prompt` 텍스트입력 패널(없으면 닉네임/복구 입력이 조용히 무시됨), 오프라인 재시도 오버레이(2.1 리젝 방지), content-process 종료 시 리로드, **빌드타입 광고유닛**(Debug/TestFlight=테스트, App Store만 실광고 — self-click 정지 예방).
 
 **의도적 미적용 (Snakeball 설계상 N/A 또는 보류):**
-- **코인 서버권위(체크리스트 §2)** — Snakeball 경제는 단일플레이어 localStorage라 공유-서버 공격면이 없음(부정행위=자기 손해뿐). IAP는 이미 서버검증. 클라우드 세이브 도입 시에만 서버 경제로 전환.
+- ~~**코인 서버권위(체크리스트 §2)** — localStorage라 미적용~~ → **적용됨(2026-07)**: 경제를 서버권위로 마이그레이션함(`functions/coinSystem.js` + `getEconomyStatus`/`spendCurrency`/`rewardFromAd`/`claimDaily`/`claimMission`, IAP는 `verifyAndFulfillPurchase`). `users/{uid}.coins/.gems/.owned_skins/.powerups` 가 진실이고 localStorage 는 부팅에 down-reconcile 되는 캐시. 설계: `docs/economy-migration-design.md`.
 - **온보딩 튜토리얼(§7)** — 게임에 튜토리얼 스캐폴딩이 있으나 `gameState='tutorial'`이 어디서도 설정 안 돼 **죽은 코드**. 검증 안 된 튜토리얼을 첫-실행 경로에 켜면 소프트락 위험 → 실기기 QA 후 활성화 권장(또는 가벼운 첫-실행 힌트 오버레이로 교체).
 - **크로스프로모(§15/§16)** — 네트워크 기능(증폭기, §6): 콜드스타트(첫 코호트) 이후 도입이 맞음.
   - ✅ **URL 스킴 등록 완료(2026-06-29)**: iOS `Info.plist`에 자체 스킴 `snakeball://`(CFBundleURLTypes) + 형제 조회 스킴 `mineta`/`pow2`(LSApplicationQueriesSchemes); Android `AndroidManifest.xml`에 형제 패키지 `<queries>`(`studio.hodgepodge.minefieldsweeper`/`pow2`). → **재빌드 필요**. (olympic은 당분간 미출시라 네트워크 전체에서 제거함.)
@@ -50,7 +50,7 @@
 
 **보류 (형 결정 대기):**
 - **다국어(i18n)** — 현재 영어 전용. Toss가 한국 플랫폼이라 **한국어는 가치가 큼**. 단 단일 HTML에 하드코딩 문자열이 많아 작업량/회귀위험 큼 + 3D라 시각 QA 필요. 할지 알려주면 en/ko부터 진행.
-- **복구 코드 / 클라우드 세이브** — 코인·젬이 localStorage라 복구는 리더보드 신원만 살림. 경제를 서버로 옮겨야 의미 있음(기존 "no-backend" 결정과 충돌). 결정 필요.
+- **복구 코드 / 클라우드 세이브** — 경제가 서버권위로 이전되면서(2026-07) 코인·젬·스킨이 `users/{uid}` 에 있으므로, 복구 코드/stableId 자동복구가 이제 **리더보드 신원 + 경제 전체**를 이전한다(기존 localStorage 한계 해소). 데이터 삭제 경로(`deleteMyData`)도 추가됨.
 
 ---
 

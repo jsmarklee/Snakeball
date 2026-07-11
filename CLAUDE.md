@@ -13,8 +13,14 @@ the sibling project `../MinefieldSweeper`).
 - **Engine**: Three.js (r160 via CDN) — single-file `index.html`, no framework.
 - **Economy/Bridge layer**: an inline `window.SB` ES module (top of `index.html`)
   that mirrors MinefieldSweeper's `BridgeManager` + `AdManager` + IAP managers.
-- **Persistence**: `localStorage` (coins, gems, skins, power-ups, missions,
-  daily streak, settings, stats). No backend required to ship.
+- **Persistence**: **server-authoritative economy** — coins/gems/owned-skins/power-ups
+  live in Firestore `users/{uid}` and are read/written via Cloud Functions
+  (`getEconomyStatus`/`spendCurrency`/`rewardFromAd`/`claimDaily`/`claimMission`,
+  IAP grants via `verifyAndFulfillPurchase`). `localStorage` is only a **read-through
+  cache** (last-known balance, settings, mission progress) that boot reconciles down
+  to the server value. Leaderboard identity (name/bestScore) + recovery codes also
+  server-side. (Was localStorage-only pre-2026-07; migrated — see
+  `docs/economy-migration-design.md`.)
 - **Platforms**: Web, iOS (WKWebView), Android (WebView), Toss (granite/RN webview).
 - **Toss build**: `@apps-in-toss/web-framework` + `granite` + `vite`.
 
@@ -137,7 +143,8 @@ brew install xcodegen && cd Mobile/iOS && xcodegen generate && open Snakeball.xc
 ### Android app (built — `Mobile/Android/`)
 A Kotlin + WebView wrapper (package `studio.hodgepodge.snakeball`), ported from
 MinefieldSweeper's shell and trimmed for Snakeball (no Play Games / Firebase /
-PostHog — Snakeball has no backend). Loads the hosting URL; portrait-only, dark
+PostHog SDK embedded in the **native shell** — the web layer talks to Firebase/Cloud
+Functions directly for the server economy + leaderboard). Loads the hosting URL; portrait-only, dark
 bg, edge-to-edge. Implements the bridge as `window.AndroidBridge` with exactly
 four `@JavascriptInterface` methods: `vibrate`, `showRewardedAd` (AdMob rewarded),
 `purchase` (Play Billing, consumables only), `getDeviceId` (ANDROID_ID). No
