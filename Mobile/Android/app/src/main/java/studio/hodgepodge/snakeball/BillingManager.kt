@@ -12,7 +12,14 @@ import com.android.billingclient.api.*
  */
 class BillingManager(
     private val activity: Activity,
-    private val onPurchaseResult: (success: Boolean, purchaseToken: String?, productId: String?, error: String?) -> Unit
+    // Result of an ACTIVE, user-initiated purchase (an in-flight web promise is
+    // waiting on it). Do NOT consume here — the web verifies + grants server-side
+    // and then calls finishTransaction() to consume.
+    private val onPurchaseResult: (success: Boolean, purchaseToken: String?, productId: String?, error: String?) -> Unit,
+    // A purchase re-surfaced with NO in-flight promise: a prior purchase that was
+    // never consumed (app killed before grant), or ITEM_ALREADY_OWNED. The web
+    // verifies + grants + finishes it out of band. Prevents "paid, got nothing".
+    private val onDeferredPurchase: (purchaseToken: String, productId: String) -> Unit
 ) : PurchasesUpdatedListener {
 
     companion object {
@@ -134,16 +141,38 @@ class BillingManager(
                 onPurchaseResult(false, null, null, "cancelled")
             }
             BillingClient.BillingResponseCode.ITEM_ALREADY_OWNED -> {
-                // A previously-purchased consumable wasn't consumed — consume it so it
-                // grants again, and report success.
-                purchases?.forEach { purchase ->
-                    val productId = purchase.products.firstOrNull() ?: ""
-                    onPurchaseResult(true, purchase.purchaseToken, productId, null)
-                }
+                // A previously-purchased consumable wasn't consumed yet. Google
+                // does NOT pass the purchase list here (`purchases` is null), so
+                // the old forEach was a no-op and the in-flight web promise hung
+                // forever. Query the owned purchases and re-deliver them out of
+                // band (verify + grant + consume) instead.
+                redeliverUnconsumedPurchases()
             }
             else -> {
                 Log.e(TAG, "Purchase error: ${billingResult.responseCode} - ${billingResult.debugMessage}")
                 onPurchaseResult(false, null, null, "failed")
+            }
+        }
+    }
+
+    // ─── Recovery: re-deliver unconsumed purchases ────────
+    // Play Billing REQUIRES querying owned purchases on startup/resume so a
+    // purchase that wasn't consumed (app killed before the server grant, or
+    // ITEM_ALREADY_OWNED) is delivered again. Each is handed to the web out of
+    // band to verify + grant + consume — so money is never taken without reward.
+    fun redeliverUnconsumedPurchases() {
+        ensureConnected {
+            val params = QueryPurchasesParams.newBuilder()
+                .setProductType(BillingClient.ProductType.INAPP)
+                .build()
+            billingClient.queryPurchasesAsync(params) { result, purchases ->
+                if (result.responseCode != BillingClient.BillingResponseCode.OK) return@queryPurchasesAsync
+                purchases.forEach { purchase ->
+                    if (purchase.purchaseState == Purchase.PurchaseState.PURCHASED) {
+                        val productId = purchase.products.firstOrNull() ?: ""
+                        onDeferredPurchase(purchase.purchaseToken, productId)
+                    }
+                }
             }
         }
     }

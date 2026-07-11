@@ -1,8 +1,11 @@
 import StoreKit
 
-/// StoreKit 2 IAP for Snakeball. v1 is client-grant (no backend): a purchase is
-/// verified locally, finished immediately, and the web layer grants the reward
-/// on the success callback. SKUs must match the `STORE` catalog in index.html.
+/// StoreKit 2 IAP for Snakeball. A purchase is verified locally, then held
+/// UNFINISHED until the web layer confirms the server granted the reward
+/// (`finishTransaction(id:)`). Finishing before the grant would let a failed
+/// server verify (cold-start/network/kill) take the money without delivering:
+/// a finished consumable is never redelivered. SKUs must match `STORE` in
+/// index.html.
 @MainActor
 class StoreKitManager: ObservableObject {
     static let shared = StoreKitManager()
@@ -18,6 +21,15 @@ class StoreKitManager: ObservableObject {
 
     @Published private(set) var products: [Product] = []
     private var listener: Task<Void, Error>?
+
+    /// Verified transactions not yet finished — held until the web layer confirms
+    /// the server grant. Keyed by transactionId.
+    private var pendingTransactions: [String: Transaction] = [:]
+
+    /// Invoked for transactions delivered OUT OF BAND (Ask-to-Buy approvals,
+    /// interrupted purchases replayed at launch) so the web layer can verify +
+    /// grant + finish them. Args: (transactionId, productId). Set by WebView.
+    var onDeferredTransaction: ((String, String) -> Void)?
 
     private init() { listener = listenForTransactions() }
     deinit { listener?.cancel() }
@@ -38,19 +50,31 @@ class StoreKitManager: ObservableObject {
         return p
     }
 
-    /// Purchase, verify, and finish in one step (v1 client-grant model).
+    /// Purchase + verify locally, but do NOT finish — hold the transaction until
+    /// `finishTransaction(id:)` is called after the server grant succeeds.
     /// Returns the verified transaction on success, nil on cancel/pending.
-    func purchaseAndFinish(_ product: Product) async throws -> Transaction? {
+    func purchase(_ product: Product) async throws -> Transaction? {
         let result = try await product.purchase()
         switch result {
         case .success(let verification):
             let transaction = try checkVerified(verification)
-            await transaction.finish()
+            pendingTransactions[String(transaction.id)] = transaction
             return transaction
         case .userCancelled, .pending:
             return nil
         @unknown default:
             return nil
+        }
+    }
+
+    /// Finish a held transaction once the web layer confirms the server granted
+    /// its reward. Until this is called the transaction stays unfinished, so
+    /// StoreKit redelivers it (via Transaction.updates) on the next launch and
+    /// the grant is retried — money is never taken without delivery.
+    func finishTransaction(id: String) async {
+        if let t = pendingTransactions[id] {
+            await t.finish()
+            pendingTransactions[id] = nil
         }
     }
 
@@ -72,12 +96,18 @@ class StoreKitManager: ObservableObject {
         return owned
     }
 
-    /// Finish any straggler transactions so consumables don't replay forever.
+    /// Out-of-band transactions: Ask-to-Buy approvals and interrupted purchases
+    /// replayed at launch. Hold them as pending and hand them to the web layer to
+    /// verify + grant + finish — NEVER finish blindly (that dropped Ask-to-Buy
+    /// grants: the buyer paid and got nothing).
     private func listenForTransactions() -> Task<Void, Error> {
         Task.detached {
             for await result in Transaction.updates {
                 if let t = try? self.checkVerified(result) {
-                    await t.finish()
+                    await MainActor.run {
+                        self.pendingTransactions[String(t.id)] = t
+                        self.onDeferredTransaction?(String(t.id), t.productID)
+                    }
                 }
             }
         }

@@ -62,6 +62,7 @@ struct WebView: UIViewRepresentable {
         webView.allowsBackForwardNavigationGestures = false
 
         context.coordinator.webView = webView
+        context.coordinator.setupStoreKitBridge()
 
         var request = URLRequest(url: url)
         request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
@@ -363,6 +364,12 @@ struct WebView: UIViewRepresentable {
                 switch action {
                 case "purchase":
                     await handlePurchase(productId: body["productId"] as? String ?? "")
+                case "finishTransaction":
+                    // Web confirms the server granted the reward — finish the held
+                    // transaction so StoreKit stops redelivering it.
+                    if let txId = body["transactionId"] as? String {
+                        await StoreKitManager.shared.finishTransaction(id: txId)
+                    }
                 case "restorePurchases":
                     await handleRestore()
                 default:
@@ -371,11 +378,23 @@ struct WebView: UIViewRepresentable {
             }
         }
 
+        /// Route out-of-band StoreKit transactions (Ask-to-Buy approvals,
+        /// interrupted purchases replayed at launch) to the web layer so it
+        /// verifies + grants + finishes them. Called once the webView exists.
+        @MainActor
+        func setupStoreKitBridge() {
+            StoreKitManager.shared.onDeferredTransaction = { [weak self] txId, productId in
+                self?.triggerIAP(name: "iapDeferredTransaction", data: """
+                    { "success": true, "transactionId": "\(txId)", "productId": "\(productId)" }
+                """)
+            }
+        }
+
         @MainActor
         private func handlePurchase(productId: String) async {
             do {
                 let product = try await StoreKitManager.shared.product(for: productId)
-                if let transaction = try await StoreKitManager.shared.purchaseAndFinish(product) {
+                if let transaction = try await StoreKitManager.shared.purchase(product) {
                     triggerIAP(name: "iapPurchase", data: """
                         { "success": true, "transactionId": "\(transaction.id)", "productId": "\(transaction.productID)" }
                     """)

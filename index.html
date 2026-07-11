@@ -1000,11 +1000,45 @@ async function purchase(productId) {
                 transactionId: data.transactionId,   // iOS: StoreKit2 transaction.id
                 purchaseToken: data.purchaseToken,    // Android: Play purchaseToken
             });
+            // Native holds the purchase UNFINISHED until we confirm the server
+            // granted — finish (iOS) / consume (Android) now so it stops
+            // redelivering. On a failed grant we skip this, leaving it to
+            // redeliver + retry on the next launch (money never taken w/o reward).
+            if (ok) finishNativePurchase(data);
             resolve(ok);
         };
         postNative('iapHandler', 'purchase', { productId });
     });
 }
+
+// Tell native to finish (iOS) / consume (Android) a granted purchase. Only
+// called after the server grant succeeds; a failed grant leaves it unfinished so
+// the store redelivers it for a retry. `data` carries iOS transactionId and/or
+// Android purchaseToken (+ productId).
+function finishNativePurchase(data) {
+    if (platform === 'ios' && data.transactionId) {
+        postNative('iapHandler', 'finishTransaction', { transactionId: data.transactionId });
+    } else if (platform === 'android' && data.purchaseToken) {
+        postNative('iapHandler', 'finishTransaction', {
+            purchaseToken: data.purchaseToken, productId: data.productId,
+        });
+    }
+}
+
+// Out-of-band purchases: iOS Ask-to-Buy approvals / interrupted purchases, and
+// Android unconsumed purchases re-surfaced at launch or on resume. Native holds
+// them unfinished and hands them here; verify + grant, then finish. Persistent
+// handler (never deleted).
+bridgeCallbacks['iapDeferredTransaction'] = async (data) => {
+    if (!data?.success) return;
+    const ok = await verifyAndGrant({
+        platform,
+        productId: data.productId,
+        transactionId: data.transactionId,
+        purchaseToken: data.purchaseToken,
+    });
+    if (ok) finishNativePurchase(data);
+};
 
 // No forced ads in this game — only opt-in rewarded ads (revive / double coins).
 function grant(g) {

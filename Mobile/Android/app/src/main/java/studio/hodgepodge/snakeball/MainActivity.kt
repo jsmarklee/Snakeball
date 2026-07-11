@@ -65,33 +65,45 @@ class MainActivity : ComponentActivity() {
         MobileAds.initialize(this) {}
         loadRewardedAd()
 
-        // Initialize Billing Manager for IAP. All Snakeball products are consumables;
-        // on a successful purchase notify the web layer, then consume immediately so the
-        // item can be bought again.
-        billingManager = BillingManager(this) { success, purchaseToken, productId, _ ->
-            // Surface the purchaseToken + productId to the web layer so it can call the
-            // verifyAndFulfillPurchase Cloud Function (server-side receipt verification).
-            // We still consume immediately below — the server verifies token validity via
-            // the Google Play Developer API, which works before/after consumption.
-            val json = if (success) {
-                val obj = JSONObject()
-                obj.put("success", true)
-                obj.put("purchaseToken", purchaseToken ?: "")
-                obj.put("productId", productId ?: "")
-                obj.toString()
-            } else {
-                "{ \"success\": false }"
-            }
-            if (::webView.isInitialized) {
-                webView.post {
-                    webView.evaluateJavascript("window.__bridgeCallbacks('iapPurchase', $json);", null)
-                    if (success && purchaseToken != null && productId != null) {
-                        billingManager.finishTransaction(purchaseToken, productId)
+        // Initialize Billing Manager for IAP. All Snakeball products are consumables.
+        // On a successful purchase we surface the token to the web layer and do NOT
+        // consume yet — the web verifies + grants server-side, then calls
+        // finishTransaction() to consume. Consuming before the grant would take the
+        // money and lose the reward if the grant failed (cold-start/network/kill).
+        billingManager = BillingManager(
+            this,
+            onPurchaseResult = { success, purchaseToken, productId, _ ->
+                val json = if (success) {
+                    JSONObject().apply {
+                        put("success", true)
+                        put("purchaseToken", purchaseToken ?: "")
+                        put("productId", productId ?: "")
+                    }.toString()
+                } else {
+                    "{ \"success\": false }"
+                }
+                if (::webView.isInitialized) {
+                    webView.post {
+                        webView.evaluateJavascript("window.__bridgeCallbacks('iapPurchase', $json);", null)
+                    }
+                }
+            },
+            onDeferredPurchase = { purchaseToken, productId ->
+                // Re-surfaced purchase with no in-flight promise (unconsumed at
+                // launch / ITEM_ALREADY_OWNED) → verify + grant + consume out of band.
+                if (::webView.isInitialized) {
+                    val json = JSONObject().apply {
+                        put("success", true)
+                        put("purchaseToken", purchaseToken)
+                        put("productId", productId)
+                    }.toString()
+                    webView.post {
+                        webView.evaluateJavascript("window.__bridgeCallbacks('iapDeferredTransaction', $json);", null)
                     }
                 }
             }
-        }
-        billingManager.startConnection()
+        )
+        billingManager.startConnection { billingManager.redeliverUnconsumedPurchases() }
 
         // Play Games Services: 초기화 + 런치 시 사인인 (iOS Game Center와 동일 역할).
         playGamesManager = PlayGamesManager(this)
@@ -342,6 +354,11 @@ class MainActivity : ComponentActivity() {
             webView.onResume()
             webView.resumeTimers()
         }
+        // Recover any purchase that completed/was approved while backgrounded and
+        // hasn't been consumed yet (server-idempotent, so re-delivery is safe).
+        if (::billingManager.isInitialized) {
+            billingManager.redeliverUnconsumedPurchases()
+        }
     }
 
     override fun onDestroy() {
@@ -418,6 +435,25 @@ class AndroidBridge(private val webView: WebView, private val context: Context, 
         } catch (e: Exception) {
             val js = "window.__bridgeCallbacks('iapPurchase', { success: false });"
             webView.post { webView.evaluateJavascript(js, null) }
+        }
+    }
+
+    @JavascriptInterface
+    fun finishTransaction(json: String? = null) {
+        // Web confirms the server granted the reward → consume the purchase so it
+        // can be bought again (and stops being re-delivered). Deferred until now so
+        // a failed grant leaves the purchase unconsumed for retry.
+        try {
+            val obj = JSONObject(json ?: "{}")
+            val purchaseToken = obj.optString("purchaseToken", "")
+            val productId = obj.optString("productId", "")
+            if (purchaseToken.isNotEmpty()) {
+                activity.runOnUiThread {
+                    activity.billingManager.finishTransaction(purchaseToken, productId)
+                }
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("AndroidBridge", "finishTransaction error: ${e.message}")
         }
     }
 
