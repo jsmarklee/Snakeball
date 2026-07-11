@@ -113,7 +113,10 @@ const DEFAULT_ECONOMY = {
 
   // ── 마이그레이션 1회성 캡드 임포트 (FC2) ──
   import_cap_coins: 30000, // 최상위 SKU(coins_big) 수준
-  import_cap_gems: 300,
+  // 결제 젬은 서버 gems 에 additive 기록되므로 import_cap 은 F2P 가 localStorage 에 쌓을 수
+  // 있는 무료 젬(daily/mission 수십 개 수준)만 커버하면 된다. 300 은 전 젬스킨(80+45+30+25)을
+  // 사고도 남아 레거시 계정당 1회 민팅 여지가 큼 → 120 으로 축소(faucet blast 억제).
+  import_cap_gems: 120,
 
   // IAP 지급 상한(방어).
   iap_max: 99999,
@@ -347,9 +350,13 @@ async function getEconomyStatus(uid, clientImport = {}) {
         const cGems = Number(clientImport.gems);
         const impCoins = Number.isFinite(cCoins) ? Math.max(0, Math.floor(cCoins)) : 0;
         const impGems = Number.isFinite(cGems) ? Math.max(0, Math.floor(cGems)) : 0;
-        // 캡드 임포트하되 기존 서버 잔액(결제분) 밑으로는 내려가지 않음.
-        updates.coins = Math.max(existingCoins, Math.min(impCoins, cfg.import_cap_coins ?? 0));
-        updates.gems = Math.max(existingGems, Math.min(impGems, cfg.import_cap_gems ?? 0));
+        // FC2 rule2: 기존 서버 coins/gems 와 max() 하지 않는다. 그 값은 lifetime-grant total
+        // (IAP 가 additive 로 기록, 소비로 감소하지 않는 스냅샷일 수 있음)이라 max 로 바닥을
+        // 깔면 결제자에게 "이미 소비한 IAP 코인"을 재발행 + import_cap 우회가 된다. 클라의
+        // post-spend localStorage 잔액을 캡드 신뢰한다(재설치-결제자가 구기기 localStorage 만
+        // 잔액을 가진 경우 손실은 FC2 가 수용한 pre-existing risk — minting 으로 고치지 않는다).
+        updates.coins = Math.min(impCoins, cfg.import_cap_coins ?? 0);
+        updates.gems = Math.min(impGems, cfg.import_cap_gems ?? 0);
         updates.owned_skins = sanitizeOwnedSkins(clientImport.owned_skins, cfg);
       } else {
         // 컷오프 이후 생성 / createdAt 없음 → 클라 잔액 미신뢰, 기존 서버 잔액만 보존.

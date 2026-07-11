@@ -613,6 +613,24 @@ const TOSS_SKU_BY_ID = {
     // gems_small:  'ait.xxxxxxxx',
     // gems_big:    'ait.xxxxxxxx',
 };
+// getPendingOrders() 는 내부 id 가 아니라 sku(ait.xxx)를 준다 → 부팅 복구 시 sku→내부 id 역참조.
+const TOSS_ID_BY_SKU = Object.fromEntries(
+    Object.entries(TOSS_SKU_BY_ID).map(([id, sku]) => [sku, id])
+);
+// 단사(injective) 무결성 — 두 상품이 같은 SKU 로 매핑되면 역참조가 뭉개진다(개발 신호).
+if (Object.keys(TOSS_SKU_BY_ID).length !== new Set(Object.values(TOSS_SKU_BY_ID)).size) {
+    console.error('[SB] TOSS_SKU_BY_ID must be injective (no duplicate SKUs)');
+}
+
+// 이 IAP 상품을 지금 이 플랫폼에서 실제로 결제할 수 있나 — store UI 게이트(죽은 버튼 방지).
+//  toss: 콘솔 SKU 가 매핑된 상품만(빈 맵 = Toss 미배선 → 상점에서 숨김).
+//  web : 데모 결제(서버검증 없음)라 상점 노출 안 함(서버권위라 leak 은 없지만 혼란/오염 차단).
+//  ios/android: 네이티브 스토어.
+function iapPurchasable(id) {
+    if (platform === 'toss') return !!TOSS_SKU_BY_ID[id];
+    if (platform === 'web') return false;
+    return true;
+}
 
 // ---------- Ads master switch (single source of truth) ----------
 // 광고 전역 on/off. AdMob 계정이 정지/심사 중이거나 실제 광고 ID가 아직 없으면 false로
@@ -626,8 +644,11 @@ const ADS_ENABLED = false;
 // ---------- App / legal info (About section) ----------
 const APP_VERSION = '1.0';
 const LEGAL = {
-    privacy: 'https://www.hodgepodge.studio/privacy.html',
-    terms: 'https://www.hodgepodge.studio/terms.html',
+    // 앱 호스팅 도메인의 정적 파일을 가리킨다(static/privacy.html·terms.html → sync:public →
+    // snakeball-game.web.app). 링크와 배포처가 일치해야 함(스튜디오 도메인 의존 제거).
+    // ⚠️ 현재 내용은 플레이스홀더 — 스토어 제출 전 실제 문구로 교체 필수(심사 게이트).
+    privacy: 'https://snakeball-game.web.app/privacy.html',
+    terms: 'https://snakeball-game.web.app/terms.html',
     support: 'support@hodgepodge.studio',
 };
 
@@ -962,19 +983,48 @@ function composeEmail(to) {
 //   iOS:     { success:true, transactionId:'<StoreKit2 transaction.id>', productId }
 //   Android: { success:true, purchaseToken:'<Play purchaseToken>', productId }
 
-// Toss: processProductGrant 이 받은 orderId 를 onEvent success 로 넘기기 위한 임시 보관.
-let _tossPendingOrder = null;
+// ---------- Toss IAP pending-order recovery (LL31 §6 / LL40 rule9) ----------
+// processProductGrant 이 true 를 반환하는 순간 Toss 는 결제를 확정(charge)한다. 그 직후
+// 웹뷰가 죽으면 onEvent success 가 안 와 서버 지급이 유실될 수 있다 → orderId 를 charge
+// "전에" localStorage 에 적어두고(=지급 마커 지우기 전에 order PERSIST, rule9), 부팅 시
+// getPendingOrders + 이 큐를 재검증한다. 지급은 여전히 서버검증 통과 후에만(시점만 미룸).
+const TOSS_PENDING_KEY = 'sb_toss_pending_v1';
+function tossPendingLoad() { const q = load(TOSS_PENDING_KEY, []); return Array.isArray(q) ? q : []; }
+function tossPendingAdd(orderId, productId) {
+    if (!orderId) return;
+    try {
+        const q = tossPendingLoad();
+        if (!q.some(x => x.orderId === orderId)) { q.push({ orderId, productId }); save(TOSS_PENDING_KEY, q); }
+    } catch (e) { /* persist 실패가 결제(return true)를 막지 않게 삼킨다 */ }
+}
+function tossPendingRemove(orderId) {
+    try { save(TOSS_PENDING_KEY, tossPendingLoad().filter(x => x.orderId !== orderId)); } catch (e) {}
+}
+
+// 지급 성공 후 Toss 에 주문 완료 통지(= Toss 판 finish/consume). 안 하면 getPendingOrders 가
+// 계속 반환 + Toss 가 미완료 주문을 자동환불할 수 있다. best-effort(실패해도 지급은 유지).
+async function tossCompleteOrder(orderId) {
+    if (!orderId) return;
+    try {
+        const { IAP } = await import('@apps-in-toss/web-framework');
+        if (IAP && IAP.completeProductGrant) await IAP.completeProductGrant({ params: { orderId } });
+    } catch (e) { /* 다음 부팅 getPendingOrders 재시도에 맡긴다 */ }
+}
 
 // Verify a native/Toss receipt server-side and grant the SERVER's amount.
-// Returns true only if the server confirmed + granted. Never throws.
-async function verifyAndGrant({ platform: plat, productId, transactionId, purchaseToken }) {
+// Returns { ok, terminal }: ok=true 지급 성공. terminal=true 는 재시도해도 안 되는 영구
+// 실패(환불/무효 상태/매핑없음 등) → 부팅 pending 큐에서 dequeue. terminal=false 는
+// 네트워크/서버설정 등 트랜지언트 → 큐 유지(다음 부팅 재시도). 절대 throw 하지 않는다.
+// opts.silent: 부팅 무음 재검증 시 실패 토스트 억제.
+async function verifyAndGrant({ platform: plat, productId, transactionId, purchaseToken }, opts = {}) {
+    const silent = !!opts.silent;
     if (!lbAvailable || !fbFns) {
-        toast('Store unavailable — try again later');
-        return false;
+        if (!silent) toast('Store unavailable — try again later');
+        return { ok: false, terminal: false };   // 서버 미가용 → 트랜지언트
     }
     try {
         const uid = await getUid();
-        if (!uid) { toast('Store unavailable — try again later'); return false; }
+        if (!uid) { if (!silent) toast('Store unavailable — try again later'); return { ok: false, terminal: false }; }
         const res = await fbFns.httpsCallable('verifyAndFulfillPurchase')({
             platform: plat, productId, transactionId, purchaseToken,
         });
@@ -988,13 +1038,15 @@ async function verifyAndGrant({ platform: plat, productId, transactionId, purcha
             } else {
                 grant(data.grant);   // SERVER-authoritative amount, not STORE.grant
             }
-            return true;
+            return { ok: true, terminal: false };
         }
-        toast('Purchase could not be verified');
-        return false;
+        if (!silent) toast('Purchase could not be verified');
+        return { ok: false, terminal: false };
     } catch (e) {
-        toast('Purchase verification failed');
-        return false;
+        // permission-denied(검증 실패/환불/무효상태)·invalid-argument(무효 상품/매핑없음)·
+        // unimplemented 등은 재시도 무의미 → terminal. unavailable/internal/네트워크만 유지.
+        if (!silent) toast('Purchase verification failed');
+        return { ok: false, terminal: !isTransientEarnError(e) };
     }
 }
 
@@ -1010,33 +1062,44 @@ async function purchase(productId) {
         return true;
     }
     if (platform === 'toss') {
-        // 실제 SDK API 는 IAP.createOneTimePurchaseOrder({options:{sku,processProductGrant},onEvent}).
-        // (구 sdk.createOneTimePurchase 는 존재하지 않아 옵셔널체이닝으로 조용히 실패했다.)
+        // 실제 SDK API: IAP.createOneTimePurchaseOrder({options:{sku,processProductGrant},onEvent,onError}).
         const sku = TOSS_SKU_BY_ID[productId];
         if (!sku) { toast('Store unavailable — try again later'); return false; } // SKU 미매핑 → fail-closed
         try {
             const { IAP } = await import('@apps-in-toss/web-framework');
             return await new Promise((resolve) => {
-                let settled = false;
-                const done = (v) => { if (settled) return; settled = true; resolve(v); };
+                let settled = false, capturedOrderId = null, watchdog = null;
+                const done = (v) => { if (settled) return; settled = true; if (watchdog) clearTimeout(watchdog); resolve(v); };
+                // onError 없이 걸면 취소/에러 시 아무 콜백도 안 와 purchase() 가 영구 pending →
+                // 워치독으로 해제(이 시점엔 지급 안 함 = money-never-taken 유지).
+                watchdog = setTimeout(() => done(false), 120000);
                 IAP.createOneTimePurchaseOrder({
                     options: {
                         sku,
                         // ⚠️ processProductGrant 안에서 네트워크 검증을 await 하면 결제 UI 중
                         // 웹뷰 JS suspend 로 SDK 가 타임아웃 → 전건 자동환불된다(플레이북 31 §6).
-                        // orderId 만 붙잡고 즉시 true 반환, 실검증/지급은 onEvent success 에서.
-                        processProductGrant: async ({ orderId }) => { _tossPendingOrder = orderId; return true; },
+                        // orderId 를 charge "전에" 로컬 큐에 적고(persist, rule9) 즉시 true 반환.
+                        processProductGrant: async ({ orderId }) => {
+                            capturedOrderId = orderId;
+                            tossPendingAdd(orderId, productId);   // charge 전 PERSIST
+                            return true;                          // 네트워크 금지
+                        },
                     },
+                    // onEvent 는 {type:'success'} 만 받는다(SDK 2.6.x). 취소/에러는 onError 로.
                     onEvent: async (e) => {
-                        if (e && e.type === 'success') {
-                            const orderId = (e.data && e.data.orderId) || _tossPendingOrder;
-                            // 내부 productId 로 서버 검증(서버 PRODUCTS 키). 서버는 콘솔 sku↔내부id
-                            // 매핑으로 지급한다(서버측 매핑도 credential 로 채워야 함).
-                            done(await verifyAndGrant({ platform: 'toss', productId, transactionId: orderId }));
-                        } else if (e && (e.type === 'fail' || e.type === 'error' || e.type === 'canceled')) {
-                            done(false);
-                        }
+                        if (!e || e.type !== 'success') return;
+                        const orderId = (e.data && e.data.orderId) || capturedOrderId;
+                        // 서버는 검증된 sku 로 지급 tier 를 도출(클라 productId 는 힌트일 뿐).
+                        const r = await verifyAndGrant({ platform: 'toss', productId, transactionId: orderId });
+                        if (r.ok) {
+                            await tossCompleteOrder(orderId);   // Toss 에 완료 통지
+                            tossPendingRemove(orderId);
+                        } else if (r.terminal) {
+                            tossPendingRemove(orderId);          // 영구 실패 → 큐에서 제거
+                        } // 트랜지언트면 큐 유지 → 부팅 재검증
+                        done(r.ok);
                     },
+                    onError: (_err) => done(false),   // USER_CANCELED / NETWORK_ERROR 등
                 });
             });
         } catch (e) { return false; }
@@ -1055,7 +1118,7 @@ async function purchase(productId) {
         bridgeCallbacks['iapPurchase'] = async (data) => {
             delete bridgeCallbacks['iapPurchase'];
             if (!data?.success) { finish(false); return; }
-            const ok = await verifyAndGrant({
+            const r = await verifyAndGrant({
                 platform,
                 productId: data.productId || productId,
                 transactionId: data.transactionId,   // iOS: StoreKit2 transaction.id
@@ -1065,8 +1128,8 @@ async function purchase(productId) {
             // granted — finish (iOS) / consume (Android) now so it stops
             // redelivering. On a failed grant we skip this, leaving it to
             // redeliver + retry on the next launch (money never taken w/o reward).
-            if (ok) finishNativePurchase(data);
-            finish(ok);
+            if (r.ok) finishNativePurchase(data);
+            finish(r.ok);
         };
         postNative('iapHandler', 'purchase', { productId });
     });
@@ -1092,13 +1155,13 @@ function finishNativePurchase(data) {
 // handler (never deleted).
 bridgeCallbacks['iapDeferredTransaction'] = async (data) => {
     if (!data?.success) return;
-    const ok = await verifyAndGrant({
+    const r = await verifyAndGrant({
         platform,
         productId: data.productId,
         transactionId: data.transactionId,
         purchaseToken: data.purchaseToken,
     });
-    if (ok) finishNativePurchase(data);
+    if (r.ok) finishNativePurchase(data);
 };
 
 // No forced ads in this game — only opt-in rewarded ads (revive / double coins).
@@ -1335,7 +1398,16 @@ function renderShop() {
         hint.textContent = 'Tip: tap a power-up on the home screen to arm it for your next run.';
         body.appendChild(hint);
     } else {
-        for (const p of STORE) {
+        // 이 플랫폼에서 실제 결제 가능한 상품만 노출(죽은 버튼 방지). Toss SKU 미매핑/web =
+        // 숨김. 하나도 없으면 "coming soon" 안내(빈 화면/죽은 버튼 대신).
+        const buyable = STORE.filter(p => iapPurchasable(p.id));
+        if (!buyable.length) {
+            const note = document.createElement('div');
+            note.style.cssText = 'color:#8a8aa8;font-size:13px;text-align:center;margin-top:24px';
+            note.textContent = 'Store coming soon.';
+            body.appendChild(note);
+        }
+        for (const p of buyable) {
             const card = document.createElement('div');
             card.className = 'card';
             card.style.flexDirection = 'row';
@@ -1758,6 +1830,35 @@ async function flushPendingEarns() {
     savePending(remaining);
 }
 
+// Toss: charge 됐으나 서버검증이 완료되지 않은 주문(웹뷰 kill 등)을 부팅 시 재검증. 소스 =
+// 로컬 pending 큐 + SDK getPendingOrders()(미완료 주문의 authoritative 소스, 구버전 undefined).
+// getPendingOrders 는 sku 만 주므로 TOSS_ID_BY_SKU 로 내부 id 역참조(역맵 없는 sku = 스킵).
+// 성공→completeProductGrant+dequeue, terminal(환불/무효/매핑없음)→dequeue, 트랜지언트→유지.
+async function flushTossPending() {
+    if (platform !== 'toss' || !lbAvailable || !fbFns) return;
+    // 1) SDK 미완료 주문을 로컬 큐에 병합(앱이 processProductGrant 전에 죽어 큐에 없던 건 복구).
+    try {
+        const { IAP } = await import('@apps-in-toss/web-framework');
+        const res = IAP && IAP.getPendingOrders ? await IAP.getPendingOrders() : undefined;
+        const orders = (res && res.orders) || [];
+        for (const o of orders) {
+            const internalId = TOSS_ID_BY_SKU[o.sku];
+            if (internalId) tossPendingAdd(o.orderId, internalId); // 역맵 없는 sku(타 미니앱 등)는 스킵
+        }
+    } catch (e) { /* 구버전 undefined / import 실패 → 로컬 큐만으로 진행 */ }
+
+    // 2) 큐 재검증. verifyAndGrant 는 절대 throw 하지 않고 {ok,terminal} 반환(무음).
+    const q = tossPendingLoad();
+    for (const item of q) {
+        const r = await verifyAndGrant(
+            { platform: 'toss', productId: item.productId, transactionId: item.orderId },
+            { silent: true });
+        if (r.ok) { await tossCompleteOrder(item.orderId); tossPendingRemove(item.orderId); }
+        else if (r.terminal) { tossPendingRemove(item.orderId); }
+        // 트랜지언트 → 유지(다음 부팅 재시도)
+    }
+}
+
 // 획득 콜 공통 래퍼: 서버 호출 → applyServerBalance(up-only). 오프라인/전송실패 시 큐잉.
 // kind: 큐 아이템 type, callName: cloud function, payload: 요청/큐 payload.
 async function submitEarn(kind, callName, payload) {
@@ -1804,6 +1905,7 @@ async function bootEconomy() {
         economyOnline = true;
         renderShopIfOpen();
         await flushPendingEarns();
+        await flushTossPending();   // Toss: charge 됐으나 미지급된 주문 재검증(no-op on 타 플랫폼)
     } catch (e) {
         economyOnline = false;
     } finally {

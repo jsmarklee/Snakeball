@@ -1,7 +1,13 @@
 {
   "functions": {
     "source": "functions",
-    "runtime": "nodejs20"
+    "runtime": "nodejs20",
+    "ignore": [
+      "node_modules",
+      ".git",
+      "*.log",
+      "scripts/**"
+    ]
   },
   "firestore": {
     "rules": "firestore.rules",

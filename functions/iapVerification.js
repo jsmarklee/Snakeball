@@ -48,6 +48,20 @@ const PRODUCTS = {
   gems_big:    { gems: 200 },
 };
 
+// Toss 콘솔 자동생성 SKU(ait.xxx) → 내부 상품 id(PRODUCTS 키) 역참조 맵.
+// ⚠️ Toss 미출시 — 콘솔에서 SKU 발급 후 채운다(credential/config). 비어 있으면 그 상품은
+//    지급 불가(fail-closed: verifyAndFulfill 이 INVALID_PRODUCT throw). 클라 index.html 의
+//    TOSS_SKU_BY_ID(내부→sku)와 **같은 커밋에서 함께** 채워야 드리프트(결제됨/미지급)가 없다.
+// 보안: 지급 tier 는 클라가 주장한 productId 가 아니라 Toss 가 검증해준 실제 sku 로만 도출한다
+//       (LL40 rule7 "derive tier from the order"). → "싼 결제로 비싼 상품" 원천 차단 +
+//       앱이 죽어 getPendingOrders 가 orderId/sku 만 줘도 복구 가능.
+const TOSS_SKU_TO_INTERNAL = {
+  // 'ait.xxxxxxxx': 'coins_small',
+  // 'ait.xxxxxxxx': 'coins_big',
+  // 'ait.xxxxxxxx': 'gems_small',
+  // 'ait.xxxxxxxx': 'gems_big',
+};
+
 // ─── App Store Server API v2 ───────────────────────────────
 
 /**
@@ -231,11 +245,11 @@ function httpsPostWithMtls(urlString, body, cert, key) {
  * Endpoint: POST {baseUrl}/api-partner/v1/apps-in-toss/order/get-order-status
  * 인증: mTLS (Toss 콘솔 > mTLS 인증서에서 발급한 cert/key 페어).
  *
- * Fail-closed: 응답의 sku가 없거나 클라이언트가 주장한 productId와 다르면 거부.
- * Snakeball은 내부 productId == 콘솔 SKU 라고 가정 (MFS의 내부ID↔SKU 매핑 테이블처럼
- * 별도 매핑이 필요하면 TOSS_INTERNAL_TO_SKU를 추가하면 된다).
+ * Fail-closed: 응답의 sku가 없거나 주문이 PURCHASED/PAYMENT_COMPLETED 상태가 아니면 거부.
+ * 반환은 Toss가 검증해준 **실제 sku** — 지급 tier 는 호출자(verifyAndFulfill)가 이 sku 를
+ * TOSS_SKU_TO_INTERNAL 로 역참조해 도출한다(클라 주장 productId 불신, LL40 rule7).
  */
-async function verifyWithToss(orderId, productId, tossBaseUrl, mtlsCert, mtlsKey) {
+async function verifyWithToss(orderId, tossBaseUrl, mtlsCert, mtlsKey) {
   if (!tossBaseUrl || !mtlsCert || !mtlsKey) {
     throw new Error("MISSING_TOSS_CREDENTIALS");
   }
@@ -279,21 +293,16 @@ async function verifyWithToss(orderId, productId, tossBaseUrl, mtlsCert, mtlsKey
     throw new Error(`TOSS_INVALID_STATE: ${status}`);
   }
 
-  // Fail-closed sku 매칭: sku가 없거나 productId와 다르면 지급 거부.
-  // (없으면 싼 결제로 비싼 상품을 받아낼 수 있으므로 반드시 존재 + 일치 확인.)
+  // Fail-closed: sku 가 없으면 지급 tier 를 도출할 수 없으므로 거부.
   if (!orderInfo.sku) {
-    console.error(`Toss order-status missing sku: orderId=${orderId}, productId=${productId}`);
-    throw new Error("PRODUCT_ID_MISMATCH");
-  }
-  if (orderInfo.sku !== productId) {
-    console.error(`Toss SKU mismatch: verified=${orderInfo.sku}, claimed=${productId}`);
+    console.error(`Toss order-status missing sku: orderId=${orderId}`);
     throw new Error("PRODUCT_ID_MISMATCH");
   }
 
   return {
     transactionId: String(orderId),
     originalTransactionId: String(orderId),
-    productId,
+    sku: String(orderInfo.sku),   // 검증된 실제 sku — 호출자가 TOSS_SKU_TO_INTERNAL 로 매핑.
     environment: "Production",
   };
 }
@@ -314,13 +323,7 @@ async function verifyAndFulfill(uid, platform, transactionId, productId, secrets
   const db = getFirestore();
   const userRef = db.collection("users").doc(uid);
 
-  // 1. 서버 권위 상품 정의 확인 — 지급량은 여기서만 나온다.
-  const grant = PRODUCTS[productId];
-  if (!grant) {
-    throw new Error("INVALID_PRODUCT");
-  }
-
-  // 2. 전역 멱등성 키. 영수증 검증은 "이 트랜잭션이 실제 결제됨"만 보장할 뿐
+  // 1. 전역 멱등성 키. 영수증 검증은 "이 트랜잭션이 실제 결제됨"만 보장할 뿐
   // "호출자가 소유함"을 보장하지 않는다. user별로 키를 잡으면 같은 영수증을
   // 무한 익명 계정에서 재사용할 수 있으므로 {platform}:{txId} 전역 원장으로 잠근다.
   const dedupKey = `${platform}:${String(transactionId)}`;
@@ -328,13 +331,20 @@ async function verifyAndFulfill(uid, platform, transactionId, productId, secrets
 
   const priorDoc = await txRef.get();
   if (priorDoc.exists) {
+    // M2(defense-in-depth): 원장에 **저장된** product_id/grant 를 echo — 클라가 주장한
+    // productId 로 재조회하지 않는다(재검증 없는 early-return 에서 클라 주장 상품을
+    // 지급액으로 되돌려주면 잠재적 비싼상품 echo). 실제로 처리된 값만 반환.
+    const prior = priorDoc.data() || {};
     console.log(`Transaction already processed (key=${dedupKey})`);
-    return { success: true, productId, grant, already_processed: true };
+    return { success: true, productId: prior.product_id, grant: prior.grant, already_processed: true };
   }
 
-  // 3. 플랫폼별 영수증 검증.
+  // 2. 플랫폼별 영수증 검증. 지급 상품 tier(effectiveProductId)는 iOS/Android 는 검증된
+  //    productId 로, Toss 는 검증된 sku 역참조로 도출한다(클라 주장 productId 불신).
   let verifiedData;
+  let effectiveProductId = productId;
   if (platform === "ios") {
+    if (!PRODUCTS[productId]) throw new Error("INVALID_PRODUCT");
     if (!secrets.keyId || !secrets.issuerId || !secrets.privateKey) {
       throw new Error("MISSING_APP_STORE_CREDENTIALS");
     }
@@ -347,6 +357,7 @@ async function verifyAndFulfill(uid, platform, transactionId, productId, secrets
       throw new Error("PRODUCT_ID_MISMATCH");
     }
   } else if (platform === "android") {
+    if (!PRODUCTS[productId]) throw new Error("INVALID_PRODUCT");
     const packageName = secrets.androidPackageName || BUNDLE_ID;
     if (!secrets.googlePlayServiceAccount) {
       throw new Error("MISSING_GOOGLE_PLAY_CREDENTIALS");
@@ -363,12 +374,23 @@ async function verifyAndFulfill(uid, platform, transactionId, productId, secrets
       throw new Error("MISSING_TOSS_CREDENTIALS");
     }
     verifiedData = await verifyWithToss(
-      String(transactionId), productId,
+      String(transactionId),
       secrets.tossIapBaseUrl, secrets.tossMtlsCert, secrets.tossMtlsKey
     );
+    // 지급 tier 는 Toss 가 검증해준 실제 sku 로만 도출(클라 productId 불신). 매핑 없으면
+    // fail-closed(콘솔 SKU 미기재 → 지급 불가). getPendingOrders 가 sku 만 줘도 복구 가능.
+    effectiveProductId = TOSS_SKU_TO_INTERNAL[verifiedData.sku];
+    if (!effectiveProductId || !PRODUCTS[effectiveProductId]) {
+      console.error(`Toss sku not mapped to a product: sku=${verifiedData.sku}, orderId=${transactionId}`);
+      throw new Error("INVALID_PRODUCT");
+    }
   } else {
     throw new Error("UNSUPPORTED_PLATFORM");
   }
+
+  // 지급량은 서버 권위 PRODUCTS 에서만 — effectiveProductId 기준(클라 grant 무시).
+  const grant = PRODUCTS[effectiveProductId];
+  if (!grant) throw new Error("INVALID_PRODUCT");
 
   // 3-1. environment 강제 거부 (플레이북 §9-4 A1 — IAP 재구현 시 가장 자주 빠지는 컨트롤).
   // Apple은 Production 401/404 시 Sandbox 엔드포인트로 폴백하므로 TestFlight/Sandbox
@@ -380,7 +402,7 @@ async function verifyAndFulfill(uid, platform, transactionId, productId, secrets
   if (env && env !== "Production") {
     const tester = await isTestAccount(db, uid);
     if (!tester) {
-      console.error(`Rejecting non-production transaction: uid=${uid} platform=${platform} env=${env} product=${productId}`);
+      console.error(`Rejecting non-production transaction: uid=${uid} platform=${platform} env=${env} product=${effectiveProductId}`);
       throw new Error(`NON_PRODUCTION_TRANSACTION: ${env}`);
     }
     console.log(`Allowing non-production transaction for test account: uid=${uid} env=${env}`);
@@ -407,7 +429,7 @@ async function verifyAndFulfill(uid, platform, transactionId, productId, secrets
 
     transaction.set(txRef, {
       uid,
-      product_id: productId,
+      product_id: effectiveProductId,
       platform,
       grant,
       processed_at: FieldValue.serverTimestamp(),
@@ -417,7 +439,7 @@ async function verifyAndFulfill(uid, platform, transactionId, productId, secrets
     });
   });
 
-  console.log(`[IAP] granted: uid=${uid} platform=${platform} product=${productId} grant=${JSON.stringify(grant)}`);
+  console.log(`[IAP] granted: uid=${uid} platform=${platform} product=${effectiveProductId} grant=${JSON.stringify(grant)}`);
 
   // 지급 트랜잭션 후 Android 소비성 구매를 서버에서 consume. 지급은 이미 원자적으로
   // 커밋됐고 dedup 원장(processed_transactions)이 재지급을 막으므로, consume 실패는
@@ -428,14 +450,14 @@ async function verifyAndFulfill(uid, platform, transactionId, productId, secrets
     const packageName = secrets.androidPackageName || BUNDLE_ID;
     try {
       await consumeGooglePlayPurchase(
-        String(transactionId), productId, packageName, secrets.googlePlayServiceAccount
+        String(transactionId), effectiveProductId, packageName, secrets.googlePlayServiceAccount
       );
     } catch (e) {
       console.error(`Google Play consume failed (grant already committed): txId=${transactionId}, error=${e.message}`);
     }
   }
 
-  return { success: true, productId, grant, already_processed: false };
+  return { success: true, productId: effectiveProductId, grant, already_processed: false };
 }
 
 module.exports = {
