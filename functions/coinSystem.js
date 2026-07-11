@@ -327,8 +327,18 @@ async function getEconomyStatus(uid, clientImport = {}) {
       // 임포트 자격: 마이그레이션 컷오프 "이전"에 생성된 진짜 레거시 계정만.
       // createdAt 존재만 보는 게이트는 치터가 generateRecoveryCode 등으로 createdAt 을
       // 만들어 우회 가능 → 컷오프 타임스탬프 비교로 강화(FC2/C2).
+      // 자격 판정. createdAt < 컷오프가 깨끗한 신호지만, submitScore 는 users doc 에
+      // name/bestScore 만 쓰고 createdAt 을 남기지 않는다 → 점수만 제출해온 진짜 레거시
+      // 유저가 createdAt 없이 존재한다. createdAt-단독 게이트는 이들을 "신규"로 오판해
+      // localStorage 잔액을 버리고(이후 클라 down-reconcile 이 0 으로 정리) 전 유저의
+      // 코인/젬/스킨을 증발시킨다. 따라서 createdAt 없이도 레거시 증거(bestScore/
+      // recoveryCode)를 지닌 pre-existing doc 은 임포트 허용. 임포트는 1회성 + 캡드라,
+      // 최악의 남용도 "신규 설치가 캡까지 1회 임포트"(비환금성 코인)로 제한된다.
       const createdMs = toMillis(data.createdAt);
-      const importEligible = createdMs != null && createdMs < MIGRATION_CUTOFF_MS;
+      const preCutoff = createdMs != null && createdMs < MIGRATION_CUTOFF_MS;
+      const legacyNoCreatedAt =
+        createdMs == null && (data.bestScore != null || data.recoveryCode != null);
+      const importEligible = preCutoff || legacyNoCreatedAt;
       if (importEligible) {
         const cCoins = Number(clientImport.coins);
         const cGems = Number(clientImport.gems);

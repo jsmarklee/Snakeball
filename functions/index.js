@@ -216,13 +216,19 @@ exports.submitScore = onCall({ region: REGION, minInstances: 1 }, async (request
     batch.set(weeklyRef, entry, { merge: true });
     batch.set(
       userRef,
-      { name: finalName, bestScore: best },
+      // createdAt 을 최초 1회 기록: 경제 마이그레이션 임포트 게이트(coinSystem
+      // getEconomyStatus)가 "레거시 계정" 판정에 쓴다. 없으면 점수만 제출한 유저가
+      // 신규로 오판돼 localStorage 잔액이 증발한다.
+      { name: finalName, bestScore: best, createdAt: userData.createdAt || FieldValue.serverTimestamp() },
       { merge: true }
     );
     await batch.commit();
   } else if (providedName && providedName !== userData.name) {
     // 신기록은 아니지만 이름이 새로 들어온 경우 users에만 반영.
-    await userRef.set({ name: finalName }, { merge: true });
+    await userRef.set(
+      { name: finalName, createdAt: userData.createdAt || FieldValue.serverTimestamp() },
+      { merge: true }
+    );
   }
 
   // ── 4) 순위 계산 (best 기준, 비용 보호 위해 RANK_QUERY_CAP 으로 제한) ──

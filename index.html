@@ -725,7 +725,19 @@ function detectPlatform() {
 }
 const platform = detectPlatform();
 const bridgeCallbacks = {};
-window.__bridgeCallbacks = (name, data) => { bridgeCallbacks[name]?.(data); };
+window.__bridgeCallbacks = (name, data) => {
+    // iOS/Android natives report a rewarded-ad result via ('adReward', {...})
+    // rather than calling __adRewardCallback directly. Nothing is registered
+    // under the 'adReward' key, so without this the reward is silently dropped
+    // and the game times out with "no reward" despite a fully watched ad.
+    // Delegating lets the in-flight adToken (via _pendingAdToken fallback, or an
+    // echoed `type`) resolve. Fixes both platforms with a web deploy only.
+    if (name === 'adReward') {
+        window.__adRewardCallback(!!(data && data.success), data && data.type, data && data.amount);
+        return;
+    }
+    bridgeCallbacks[name]?.(data);
+};
 // 마지막으로 요청한 rewarded 광고의 고유 adToken (native 콜백 라우팅 fallback).
 let _pendingAdToken = null;
 window.__adRewardCallback = (success, type, amount) => {
@@ -1548,7 +1560,18 @@ function applyServerBalance(resp, opts = {}) {
     if (typeof resp.gems === 'number' && (!upOnly || resp.gems >= state.gems)) state.gems = resp.gems;
     if (Array.isArray(resp.owned_skins)) state.owned = resp.owned_skins.slice();
     if (resp.powerups && typeof resp.powerups === 'object') {
-        state.powerups = { headstart: 0, magnet: 0, shield: 0, ...resp.powerups };
+        // 서버는 파워업 "구매"(+1)만 알고 "소모"는 클라만 안다(소모 서버콜 없음).
+        // 서버값으로 무조건 덮으면 사용한 파워업이 부팅 리컨사일마다 되살아나
+        // "1회 구매 = 무한 사용"이 된다. min(local, server)로 조정: 정직한 플레이는
+        // local ≤ server 이라 사용분이 유지되고, local 이 부풀려진 경우 구매 총량으로
+        // 캡된다. (정석 픽스: 소모를 서버에 보고 — economy-migration-design P1.)
+        const sp = resp.powerups;
+        state.powerups = state.powerups || { headstart: 0, magnet: 0, shield: 0 };
+        for (const id of ['headstart', 'magnet', 'shield']) {
+            const local = Number(state.powerups[id]) || 0;
+            const server = Number(sp[id]) || 0;
+            state.powerups[id] = Math.min(local, server);
+        }
     }
     if (resp.config_public) adoptConfigPublic(resp.config_public);
     refreshHUD();
