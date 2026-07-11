@@ -152,6 +152,25 @@ async function verifyWithGooglePlay(purchaseToken, productId, packageName, servi
   };
 }
 
+/**
+ * Google Play 소비성 구매 서버 consume.
+ * 서버가 지급을 확정한 뒤 직접 :consume 를 호출한다(클라 consume 에 의존 금지).
+ * Google 은 3일 내 미소비 소비성 구매를 자동 환불/회수하므로, 서버 consume 로
+ *   (a) 정상 유저의 합법 결제가 3일 후 자동취소되는 것
+ *   (b) consume 를 생략하고 자동환불받아 무료 코인을 얻는 어뷰징
+ * 을 함께 막는다.
+ */
+async function consumeGooglePlayPurchase(purchaseToken, productId, packageName, serviceAccountJson) {
+  const credentials = JSON.parse(serviceAccountJson);
+  const auth = new GoogleAuth({
+    credentials,
+    scopes: ["https://www.googleapis.com/auth/androidpublisher"],
+  });
+  const client = await auth.getClient();
+  const url = `https://androidpublisher.googleapis.com/androidpublisher/v3/applications/${packageName}/purchases/products/${productId}/tokens/${purchaseToken}:consume`;
+  await client.request({ url, method: "POST" });
+}
+
 // ─── Toss IAP 검증 (mTLS) ──────────────────────────────────
 
 /**
@@ -399,6 +418,23 @@ async function verifyAndFulfill(uid, platform, transactionId, productId, secrets
   });
 
   console.log(`[IAP] granted: uid=${uid} platform=${platform} product=${productId} grant=${JSON.stringify(grant)}`);
+
+  // 지급 트랜잭션 후 Android 소비성 구매를 서버에서 consume. 지급은 이미 원자적으로
+  // 커밋됐고 dedup 원장(processed_transactions)이 재지급을 막으므로, consume 실패는
+  // 로그만 남기고 지급을 되돌리지 않는다(환불/취소 회수는 RTDN 스윕이 담당 — 아래 TODO).
+  // TODO(infra): Pub/Sub RTDN(voidedPurchases) 스윕으로 환불/취소된 구매를 원장에서
+  //   회수. 현재는 미구축이라 서버 consume + 3일 자동취소 회피만 보장한다.
+  if (platform === "android") {
+    const packageName = secrets.androidPackageName || BUNDLE_ID;
+    try {
+      await consumeGooglePlayPurchase(
+        String(transactionId), productId, packageName, secrets.googlePlayServiceAccount
+      );
+    } catch (e) {
+      console.error(`Google Play consume failed (grant already committed): txId=${transactionId}, error=${e.message}`);
+    }
+  }
+
   return { success: true, productId, grant, already_processed: false };
 }
 

@@ -13,6 +13,7 @@ const { defineSecret } = require("firebase-functions/params");
 const crypto = require("crypto");
 const { initializeApp } = require("firebase-admin/app");
 const { getFirestore, FieldValue } = require("firebase-admin/firestore");
+const { getAuth } = require("firebase-admin/auth");
 const { checkBlocklist } = require("./blocklist");
 const { verifyAndFulfill } = require("./iapVerification");
 const coin = require("./coinSystem");
@@ -631,6 +632,34 @@ exports.claimMission = onCall({ region: REGION }, async (request) => {
   } catch (err) {
     throw mapEconomyError(err);
   }
+});
+
+// ─── 유저 데이터 삭제 (Apple 5.1.1(v) / Play Data Safety) ───────
+//
+// 익명 auth라 법적 의무는 아니나, stableId(IDFV/ANDROID_ID)·닉네임·점수·잔액을
+// 서버에 저장하므로 리뷰어 재량/데이터 안전 라벨 일치를 위해 삭제 경로를 제공한다.
+// users/{uid} + 리더보드 문서(global + 이번 주 weekly)를 지우고 auth 계정을 삭제한다.
+// ⚠️ 과거 주차 weekly 문서와 processed_transactions(멱등 원장)는 남긴다 —
+//    전자는 컬렉션명이 주차별이라 일괄 조회가 비싸고, 후자는 영수증 재사용 방지에
+//    필요(개인식별정보 없음).
+exports.deleteMyData = onCall({ region: REGION }, async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "인증이 필요합니다.");
+  const uid = request.auth.uid;
+
+  const batch = db.batch();
+  batch.delete(db.collection("users").doc(uid));
+  batch.delete(db.collection("leaderboard_global").doc(uid));
+  batch.delete(db.collection(`leaderboard_weekly_${isoWeekKeyKST()}`).doc(uid));
+  await batch.commit();
+
+  // auth 계정 삭제 — 실패해도 데이터는 이미 지워졌으므로 성공으로 처리(로그만).
+  try {
+    await getAuth().deleteUser(uid);
+  } catch (e) {
+    console.error("deleteMyData: auth.deleteUser failed:", e.message);
+  }
+
+  return { deleted: true };
 });
 
 // ─── IAP 영수증 검증 ──────────────────────────────────────────
