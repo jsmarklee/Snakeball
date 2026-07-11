@@ -553,6 +553,7 @@ canvas { display: block; width: 100%; height: 100%; }
             <div id="xpromo-more-games"></div>
             <div class="setting-row" id="set-recovery-show" style="cursor:pointer">Recovery Code<span id="recovery-code-val" style="color:var(--mint);font-size:13px;font-weight:700">View ›</span></div>
             <div class="setting-row" id="set-recovery-enter" style="cursor:pointer">Restore from Code<span style="color:#8a8aa8;font-size:16px">›</span></div>
+            <div class="setting-row" id="set-delete-data" style="cursor:pointer">Delete My Data<span style="color:#ff6b6b;font-size:16px">›</span></div>
             <div class="setting-row" id="set-version-row" style="border-bottom:none;color:#8a8aa8;font-size:13px">Version<span id="set-version-val">v1.0</span></div>
         </div>
     </div>
@@ -602,6 +603,17 @@ canvas { display: block; width: 100%; height: 100%; }
 const TOSS_AD_GROUP_ID = '';            // Toss AdMob ad group id (from console)
 const TOSS_CONTACTS_VIRAL_MODULE_ID = '';
 
+// Toss 콘솔이 자동 생성하는 SKU(ait.xxxxx) ↔ 내부 상품 id(STORE/서버 PRODUCTS 키) 매핑.
+// ⚠️ Toss 미출시 — 콘솔에서 SKU 발급 후 값을 채운다(credential/config). 비어 있으면
+//    해당 상품은 구매 불가(fail-closed: 주문을 생성하지 않음). 서버 verifyWithToss 는
+//    콘솔 sku 와 지급용 내부 productId 를 매핑해야 하므로 서버측도 함께 채워야 한다.
+const TOSS_SKU_BY_ID = {
+    // coins_small: 'ait.xxxxxxxx',
+    // coins_big:   'ait.xxxxxxxx',
+    // gems_small:  'ait.xxxxxxxx',
+    // gems_big:    'ait.xxxxxxxx',
+};
+
 // ---------- Ads master switch (single source of truth) ----------
 // 광고 전역 on/off. AdMob 계정이 정지/심사 중이거나 실제 광고 ID가 아직 없으면 false로
 // 출시 → 보상형 광고 UI(부활/더블코인 ▶버튼)를 전부 숨기고 코인/젬 폴백만 노출한다.
@@ -621,7 +633,10 @@ const LEGAL = {
 
 // ---------- Persistence ----------
 const LS = window.localStorage;
-const today = () => new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+// KST(UTC+9) 기준 날짜 키 — 서버(coinSystem/index.js)가 KST로 데일리/미션/주차를
+// 리셋하므로 클라도 KST로 맞춘다. UTC로 두면 09:00 KST 전후로 클라-서버 날짜가
+// 어긋나 "토스트는 뜨는데 서버는 ALREADY_CLAIMED 거부"하는 유령 클레임이 난다.
+const today = () => new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10); // YYYY-MM-DD (KST)
 function load(key, def) {
     try { const v = LS.getItem(key); return v === null ? def : JSON.parse(v); }
     catch (e) { return def; }
@@ -907,7 +922,14 @@ function showRewardedAd(adToken) {
 // the ▶ revive / ▶ double-coins buttons. Flip ADS_ENABLED to hide them everywhere
 // and fall back to coins/gems. (플레이북 21 §9-6 — 죽은 광고 버튼 숨기기)
 function canShowRewardedAd() {
-    return ADS_ENABLED;
+    if (!ADS_ENABLED) return false;
+    // 플랫폼 인지형 게이트 — 죽은 "광고 보기" 버튼을 막는다.
+    //  web : 리워드 광고 없음(showRewardedAd 는 데모만) → 항상 false.
+    //  toss: adGroupId 미주입이면 광고가 영영 로드되지 않으므로 false(있을 때만 true).
+    //  ios/android: 네이티브 AdMob rewarded.
+    if (platform === 'web') return false;
+    if (platform === 'toss') return !!TOSS_AD_GROUP_ID;
+    return true;
 }
 
 // ---------- In-app links & email (About section) ----------
@@ -940,6 +962,9 @@ function composeEmail(to) {
 //   iOS:     { success:true, transactionId:'<StoreKit2 transaction.id>', productId }
 //   Android: { success:true, purchaseToken:'<Play purchaseToken>', productId }
 
+// Toss: processProductGrant 이 받은 orderId 를 onEvent success 로 넘기기 위한 임시 보관.
+let _tossPendingOrder = null;
+
 // Verify a native/Toss receipt server-side and grant the SERVER's amount.
 // Returns true only if the server confirmed + granted. Never throws.
 async function verifyAndGrant({ platform: plat, productId, transactionId, purchaseToken }) {
@@ -948,14 +973,21 @@ async function verifyAndGrant({ platform: plat, productId, transactionId, purcha
         return false;
     }
     try {
-        const uid = await whenAuthReady;
+        const uid = await getUid();
         if (!uid) { toast('Store unavailable — try again later'); return false; }
         const res = await fbFns.httpsCallable('verifyAndFulfillPurchase')({
             platform: plat, productId, transactionId, purchaseToken,
         });
         const data = res?.data;
         if (data?.success && data.grant) {
-            grant(data.grant);   // SERVER-authoritative amount, not STORE.grant
+            if (data.already_processed) {
+                // 이미 서버가 처리한 트랜잭션(응답 유실 후 재시도 등). 서버 잔액엔 이미
+                // 반영돼 있으므로 grant 를 로컬에 다시 더하면 캐시 잔액이 부풀려진다
+                // (다음 부팅 리컨사일에 클로백). 재지급 대신 서버 권위 잔액만 재조회한다.
+                await refreshServerBalance();
+            } else {
+                grant(data.grant);   // SERVER-authoritative amount, not STORE.grant
+            }
             return true;
         }
         toast('Purchase could not be verified');
@@ -978,22 +1010,51 @@ async function purchase(productId) {
         return true;
     }
     if (platform === 'toss') {
+        // 실제 SDK API 는 IAP.createOneTimePurchaseOrder({options:{sku,processProductGrant},onEvent}).
+        // (구 sdk.createOneTimePurchase 는 존재하지 않아 옵셔널체이닝으로 조용히 실패했다.)
+        const sku = TOSS_SKU_BY_ID[productId];
+        if (!sku) { toast('Store unavailable — try again later'); return false; } // SKU 미매핑 → fail-closed
         try {
-            const sdk = await import('@apps-in-toss/web-framework');
-            const res = await sdk.createOneTimePurchase?.({ productId });
-            if (res && (res.status === 'success' || res.success)) {
-                // Toss returns an orderId on the purchase result — verify it server-side.
-                const orderId = res.orderId || res.data?.orderId || res.order?.orderId;
-                return await verifyAndGrant({ platform: 'toss', productId, transactionId: orderId });
-            }
-            return false;
+            const { IAP } = await import('@apps-in-toss/web-framework');
+            return await new Promise((resolve) => {
+                let settled = false;
+                const done = (v) => { if (settled) return; settled = true; resolve(v); };
+                IAP.createOneTimePurchaseOrder({
+                    options: {
+                        sku,
+                        // ⚠️ processProductGrant 안에서 네트워크 검증을 await 하면 결제 UI 중
+                        // 웹뷰 JS suspend 로 SDK 가 타임아웃 → 전건 자동환불된다(플레이북 31 §6).
+                        // orderId 만 붙잡고 즉시 true 반환, 실검증/지급은 onEvent success 에서.
+                        processProductGrant: async ({ orderId }) => { _tossPendingOrder = orderId; return true; },
+                    },
+                    onEvent: async (e) => {
+                        if (e && e.type === 'success') {
+                            const orderId = (e.data && e.data.orderId) || _tossPendingOrder;
+                            // 내부 productId 로 서버 검증(서버 PRODUCTS 키). 서버는 콘솔 sku↔내부id
+                            // 매핑으로 지급한다(서버측 매핑도 credential 로 채워야 함).
+                            done(await verifyAndGrant({ platform: 'toss', productId, transactionId: orderId }));
+                        } else if (e && (e.type === 'fail' || e.type === 'error' || e.type === 'canceled')) {
+                            done(false);
+                        }
+                    },
+                });
+            });
         } catch (e) { return false; }
     }
     // iOS / Android: native store → server receipt verification → grant.
     return new Promise((resolve) => {
+        // 워치독: 네이티브 iapPurchase 콜백이 영영 안 오면(결제 시트 강제종료/브릿지
+        // 유실) purchase() 가 영구 pending 되어 상점 버튼이 잠긴다. 120초 후 false 로 해제.
+        // (money-never-taken 보장은 그대로 — 이 시점엔 지급을 하지 않는다.)
+        let settled = false;
+        const finish = (v) => { if (settled) return; settled = true; clearTimeout(watchdog); resolve(v); };
+        const watchdog = setTimeout(() => {
+            if (bridgeCallbacks['iapPurchase']) delete bridgeCallbacks['iapPurchase'];
+            finish(false);
+        }, 120000);
         bridgeCallbacks['iapPurchase'] = async (data) => {
             delete bridgeCallbacks['iapPurchase'];
-            if (!data?.success) { resolve(false); return; }
+            if (!data?.success) { finish(false); return; }
             const ok = await verifyAndGrant({
                 platform,
                 productId: data.productId || productId,
@@ -1005,7 +1066,7 @@ async function purchase(productId) {
             // redelivering. On a failed grant we skip this, leaving it to
             // redeliver + retry on the next launch (money never taken w/o reward).
             if (ok) finishNativePurchase(data);
-            resolve(ok);
+            finish(ok);
         };
         postNative('iapHandler', 'purchase', { productId });
     });
@@ -1292,7 +1353,10 @@ function renderShop() {
                 `<div class="desc" style="min-height:auto">${grantTxt}</div></div>` +
                 (isOwnedNoncon
                     ? `<button class="buy-btn owned" disabled>OWNED</button>`
-                    : `<button class="buy-btn cash" style="width:auto;padding:8px 14px" data-buyiap="${p.id}">${p.price}</button>`);
+                    // 라벨은 'BUY' — 실제 현지화 가격(KRW 등)은 스토어 결제 시트가 표시한다.
+                    // p.price('$0.99')를 직접 쓰면 3스토어 공통으로 표시가≠청구가가 된다
+                    // (특히 100% 한국 유저인 Toss). getProducts 브릿지로 런타임 덮어쓰기는 후속.
+                    : `<button class="buy-btn cash" style="width:auto;padding:8px 14px" data-buyiap="${p.id}">BUY</button>`);
             body.appendChild(card);
         }
     }
@@ -1455,6 +1519,17 @@ whenAuthReady = new Promise((resolve) => {
     }
 });
 
+// getUid — 인증된 uid 조회 헬퍼. whenAuthReady 는 8s 타임아웃으로 null 을 "확정"할 수
+// 있지만(느린 콜드 인증), 그 뒤 인증이 뒤늦게 성공하면 fbAuth.currentUser 에 값이 있다.
+// 콜사이트가 whenAuthReady 만 보면 세션 내내 점수제출/소비/구매검증/복구가 전부 죽으므로
+// currentUser 로 폴백한다. (bootEconomy 의 폴백 패턴을 전 콜사이트로 일반화)
+async function getUid() {
+    let uid = null;
+    try { uid = await whenAuthReady; } catch (e) { uid = null; }
+    if (!uid && fbAuth && fbAuth.currentUser) uid = fbAuth.currentUser.uid;
+    return uid;
+}
+
 // ---------- Account recovery (stableId auto + recovery code) ----------
 // stableId(iOS IDFV / Android ANDROID_ID)를 캡처해 같은-기기 재설치 시 리더보드
 // 신원(name/bestScore)을 자동 복구한다. 네이티브에서만 동작(web/toss는 no-op).
@@ -1468,7 +1543,7 @@ function captureStableIdAndRecover() {
         myStableId = id; save('sb_stableid', id);
         if (!lbAvailable || !fbFns) return;
         try {
-            const uid = await whenAuthReady;
+            const uid = await getUid();
             if (!uid) return;
             const res = await fbFns.httpsCallable('recoverAccount')({ stableId: id });
             if (res?.data?.recovered && res.data.name) {
@@ -1486,7 +1561,7 @@ captureStableIdAndRecover();
 async function showRecoveryCode(message) {
     if (!lbAvailable || !fbFns) { toast('복구 기능을 사용할 수 없어요'); return; }
     try {
-        const uid = await whenAuthReady;
+        const uid = await getUid();
         if (!uid) { toast('복구 기능을 사용할 수 없어요'); return; }
         const res = await fbFns.httpsCallable('generateRecoveryCode')();
         const code = res?.data?.code;
@@ -1535,12 +1610,28 @@ async function recoverFromCode() {
     run(false);
 }
 
+// deleteMyData — 서버 유저 데이터(닉네임·점수·잔액·기기ID) + auth 계정 삭제.
+// Apple 5.1.1(v) / Play Data Safety "데이터 삭제" 경로. 파괴적이라 confirm 후에만.
+// 성공하면 로컬 캐시도 비우고 새로 시작한다.
+async function deleteMyData() {
+    if (!lbAvailable || !fbFns) { toast('지금은 삭제할 수 없어요'); return; }
+    if (!confirm('내 데이터(닉네임·점수·코인·젬)를 모두 삭제할까요?\n이 작업은 되돌릴 수 없어요.')) return;
+    try {
+        const uid = await getUid();
+        if (!uid) { toast('지금은 삭제할 수 없어요'); return; }
+        await fbFns.httpsCallable('deleteMyData')();
+        try { LS.clear(); } catch (_) {}
+        toast('삭제되었어요. 새로고침합니다…');
+        setTimeout(() => location.reload(), 1000);
+    } catch (e) { toast('삭제에 실패했어요 — 잠시 후 다시 시도해주세요'); }
+}
+
 // startRun — 게임 시작 시 세션 발급 (fire-and-forget, 에러 무시).
 async function startRun() {
     sessionToken = null;
     if (!lbAvailable || !fbFns) return;
     try {
-        const uid = await whenAuthReady;
+        const uid = await getUid();
         if (!uid) return;
         const res = await fbFns.httpsCallable('startRun')();
         sessionToken = res?.data?.sessionToken || null;
@@ -1672,7 +1763,7 @@ async function flushPendingEarns() {
 async function submitEarn(kind, callName, payload) {
     if (!lbAvailable || !fbFns) { enqueueEarn({ type: kind, payload }); return null; }
     try {
-        const uid = await whenAuthReady;
+        const uid = await getUid();
         if (!uid) { enqueueEarn({ type: kind, payload }); return null; }
         const res = await fbFns.httpsCallable(callName)(payload || {});
         applyServerBalance(res?.data, { upOnly: true });
@@ -1727,6 +1818,18 @@ function renderShopIfOpen() {
     } catch (e) {}
 }
 
+// 서버 권위 잔액만 재조회(임포트 payload 없이). already_processed 재구매처럼 로컬
+// 재지급 없이 서버값으로 캐시를 맞춰야 할 때 사용한다. 실패는 조용히 무시.
+async function refreshServerBalance() {
+    if (!lbAvailable || !fbFns) return;
+    try {
+        const uid = await getUid();
+        if (!uid) return;
+        const res = await fbFns.httpsCallable('getEconomyStatus')({});
+        applyServerBalance(res?.data);
+    } catch (e) {}
+}
+
 // ---------- Spend (server-authoritative) ----------
 // 성공 시 { ok:true, resp }. 오프라인/auth-null/에러 시 toast + { ok:false } — 로컬 지급 없음.
 async function spendCurrency(params) {
@@ -1734,7 +1837,7 @@ async function spendCurrency(params) {
     if (!economyOnline) { toast('Store unavailable — check your connection'); return { ok: false, offline: true }; }
     if (!lbAvailable || !fbFns) { toast('Store unavailable — check your connection'); return { ok: false, offline: true }; }
     try {
-        const uid = await whenAuthReady;
+        const uid = await getUid();
         if (!uid) { toast('Store unavailable — check your connection'); return { ok: false, offline: true }; }
         const data = { ...params };
         if (params.reason === 'revive') data.sessionToken = sessionToken;
@@ -1755,7 +1858,7 @@ async function spendCurrency(params) {
 async function rewardFromAd(adToken, context) {
     if (!lbAvailable || !fbFns) return { ok: false, offline: true };
     try {
-        const uid = await whenAuthReady;
+        const uid = await getUid();
         if (!uid) return { ok: false, offline: true };
         const res = await fbFns.httpsCallable('rewardFromAd')({ adToken, context });
         applyServerBalance(res?.data, { upOnly: true });
@@ -1799,7 +1902,7 @@ async function fetchLeaderboard(n = 50) {
 async function setPlayerName(name) {
     if (!lbAvailable || !fbFns) { toast('리더보드를 사용할 수 없어요'); return null; }
     try {
-        const uid = await whenAuthReady;
+        const uid = await getUid();
         if (!uid) { toast('리더보드를 사용할 수 없어요'); return null; }
         const res = await fbFns.httpsCallable('setName')({ name });
         const clean = res?.data?.name;
@@ -2067,7 +2170,7 @@ function _xpMarkClaimedLocal(gameId) {
 async function claimCrossPromoRewardServer(gameId) {
     if (!lbAvailable || !fbFns) return { success: false, offline: true };
     try {
-        const uid = await whenAuthReady;
+        const uid = await getUid();
         if (!uid) return { success: false, offline: true };
         const res = await fbFns.httpsCallable('claimCrossPromoReward')({ gameId });
         return { success: true, reward: res?.data?.reward || 0, coins: res?.data?.coins };
@@ -2231,6 +2334,7 @@ function wire() {
     onTap($('set-support-row'), () => composeEmail(LEGAL.support));
     onTap($('set-recovery-show'), () => showRecoveryCode());
     onTap($('set-recovery-enter'), () => recoverFromCode());
+    onTap($('set-delete-data'), () => deleteMyData());
     // Auto-pop daily reward once per day on first load
     if (dailyAvailable() && state.daily.last !== '') {
         // returning player — surface the daily
@@ -3631,6 +3735,7 @@ function triggerDeath() {
 
 let reviveCountdown = 0;
 let reviveInterval = null;
+let reviveStart = 0;        // 부활 카운트다운 벽시계 시작(백그라운드 체류만큼 뒤로 밀림).
 function showReviveScreen() {
     gameState = 'revive';
     // throw the trailing balls for drama but keep run alive
@@ -3656,9 +3761,9 @@ function showReviveScreen() {
     numEl.textContent = reviveCountdown;
     ring.style.setProperty('--p', '100%');
     clearInterval(reviveInterval);
-    const start = Date.now();
+    reviveStart = Date.now();
     reviveInterval = setInterval(() => {
-        const elapsed = (Date.now() - start) / 1000;
+        const elapsed = (Date.now() - reviveStart) / 1000;
         const remain = Math.max(0, 5 - elapsed);
         reviveCountdown = Math.ceil(remain);
         numEl.textContent = reviveCountdown;
@@ -3671,9 +3776,13 @@ async function reviveVia(method) {
     clearInterval(reviveInterval);
     if (method === 'ad') {
         document.getElementById('revive-ad').disabled = true;
-        const rewarded = window.SB ? await SB.showRewardedAd() : true;
+        // 고유 adToken 으로 광고와 서버 rewardFromAd 를 동일 키로 스레드(멱등).
+        const adToken = window.SB ? SB.newAdToken() : null;
+        const rewarded = window.SB ? await SB.showRewardedAd(adToken) : true;
         document.getElementById('revive-ad').disabled = false;
         if (!rewarded) { showReviveScreen(); return; } // re-arm countdown if ad failed
+        // 서버 부활 원장/일일 캡 반영 — fire-and-forget(부활 UX 를 네트워크로 막지 않음).
+        if (window.SB && adToken) SB.rewardFromAd(adToken, 'revive');
         doRevive();
     } else if (method === 'gem') {
         const gemCost = window.SB ? SB.reviveGemCost(revivesUsed) : (5 + revivesUsed * 5);
@@ -3948,6 +4057,24 @@ function resumeGame() {
     gameState = 'playing';
     if (soundEnabled && audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
 }
+
+// 백그라운드 전환 시 자동 일시정지 + 부활 카운트다운 정지.
+//  - playing: 앱이 가려지면 자동 pause(블라인드 플레이/의도치 않은 사망 방지). 복귀 시
+//    유저가 수동 resume(자동 재개 안 함 — 갑작스런 재시작 방지).
+//  - revive : 카운트다운이 벽시계(Date.now)라 백그라운드 동안에도 흘러 복귀 즉시
+//    declineRevive 될 수 있다. 가려진 시간만큼 reviveStart 를 밀어 그 동안 정지시킨다.
+let _reviveHiddenAt = 0;
+document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+        if (gameState === 'playing') pauseGame();
+        if (gameState === 'revive') _reviveHiddenAt = Date.now();
+    } else {
+        if (gameState === 'revive' && _reviveHiddenAt) {
+            reviveStart += Date.now() - _reviveHiddenAt;
+            _reviveHiddenAt = 0;
+        }
+    }
+});
 function quitToMenu() {
     if (gameState !== 'paused') return;
     pauseScreen.style.display = 'none';
