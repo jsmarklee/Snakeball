@@ -260,8 +260,14 @@ struct WebView: UIViewRepresentable {
 
         // MARK: - WKUIDelegate (the game uses custom modals; these are safety nets)
 
+        // WKWebView 는 window.alert 을 기본적으로 무시(no-op)한다 — 이걸 구현하지 않으면
+        // 복구 코드 안내 alert() 가 iOS 에서 조용히 사라진다(소모성-only 게임의 유일한
+        // 기기 이전 수단이라 치명적). UIAlertController 로 실제로 표시한다. (needs device E2E)
         func webView(_ webView: WKWebView, runJavaScriptAlertPanelWithMessage message: String, initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping () -> Void) {
-            completionHandler()
+            guard let rootVC = getRootViewController() else { completionHandler(); return }
+            let alert = UIAlertController(title: nil, message: message, preferredStyle: .alert)
+            alert.addAction(UIAlertAction(title: "확인", style: .default) { _ in completionHandler() })
+            rootVC.present(alert, animated: true)
         }
         func webView(_ webView: WKWebView, runJavaScriptConfirmPanelWithMessage message: String, initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping (Bool) -> Void) {
             guard let rootVC = getRootViewController() else { completionHandler(true); return }
@@ -534,9 +540,17 @@ class InterstitialAdManager: NSObject, FullScreenContentDelegate {
     private let realAdUnitId = "ca-app-pub-3940256099942544/4411468910"
     private var adUnitId: String { isInternalAdBuild ? testAdUnitId : realAdUnitId }
 
-    override init() { super.init(); load() }
+    // 실 인터스티셜 유닛이 아직 없다(realAdUnitId 가 Google 테스트 id 인 placeholder).
+    // 릴리스 빌드에서 테스트 광고를 프리로드/요청하면 AdMob 정책 위반(공유 계정 정지
+    // 리스크)이라, 실 유닛을 넣기 전까지 프리로드/표시를 비활성화한다. 게임은 인터스티셜을
+    // 요청하지 않으므로(웹에서 showInterstitial 미호출) 기능 영향 없음. 실 유닛을
+    // realAdUnitId 에 넣으면 자동으로 다시 프리로드된다. (needs device E2E)
+    private var hasRealAdUnit: Bool { !realAdUnitId.hasPrefix("ca-app-pub-3940256099942544") }
+
+    override init() { super.init(); if hasRealAdUnit { load() } }
 
     func load() {
+        guard hasRealAdUnit else { return }
         if isLoading { return }
         isLoading = true
         InterstitialAd.load(with: adUnitId, request: Request()) { [weak self] ad, error in

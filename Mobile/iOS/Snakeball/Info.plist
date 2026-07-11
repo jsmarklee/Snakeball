@@ -57,10 +57,11 @@
 		<key>UIColorName</key>
 		<string>LaunchBackground</string>
 	</dict>
+	<!-- 전면 평문 허용(NSAllowsArbitraryLoads)은 제거. 게임/리더보드/IAP 는 전부 HTTPS 라
+	     불필요하고, 광고 SDK 없는 앱에서 App Review 가 사유를 물을 수 있다. 광고 크리에이티브
+	     (혼합 콘텐츠)와 WKWebView 로드용 예외만 남긴다. (needs device E2E — 광고/웹뷰 로드 확인) -->
 	<key>NSAppTransportSecurity</key>
 	<dict>
-		<key>NSAllowsArbitraryLoads</key>
-		<true/>
 		<key>NSAllowsArbitraryLoadsForMedia</key>
 		<true/>
 		<key>NSAllowsArbitraryLoadsInWebContent</key>
