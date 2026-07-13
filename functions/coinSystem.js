@@ -112,7 +112,7 @@ const DEFAULT_ECONOMY = {
   rewarded_rate_limit_ms: 60000,
 
   // ── 마이그레이션 1회성 캡드 임포트 (FC2) ──
-  import_cap_coins: 30000, // 최상위 SKU(coins_big) 수준
+  import_cap_coins: 30000, // 최상위 SKU(coins.30000) 수준
   // 결제 젬은 서버 gems 에 additive 기록되므로 import_cap 은 F2P 가 localStorage 에 쌓을 수
   // 있는 무료 젬(daily/mission 수십 개 수준)만 커버하면 된다. 300 은 전 젬스킨(80+45+30+25)을
   // 사고도 남아 레거시 계정당 1회 민팅 여지가 큼 → 120 으로 축소(faucet blast 억제).

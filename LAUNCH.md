@@ -78,7 +78,7 @@
 - 다 되면 내가 `firebase deploy --only functions` 으로 검증 함수 배포.
 
 ### D. IAP 상품 등록 (각 스토어, SKU 4종 — 전부 소비성)
-`coins_small`, `coins_big`, `gems_small`, `gems_big` (ID 정확히 일치):
+`coins.5000`, `coins.30000`, `gems.small`, `gems.big` (ID 정확히 일치):
 - **App Store Connect** → In-App Purchases (소비성)
 - **Google Play Console** → 인앱 상품
 - **Toss 콘솔** → 상품 (등록 + ON, 슬러그가 위와 다르면 알려줘 — 매핑 추가 필요)

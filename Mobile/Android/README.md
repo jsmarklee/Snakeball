@@ -62,7 +62,7 @@ the Snakeball web layer no longer calls them.
    - Rewarded unit id → `MainActivity.loadRewardedAd()` `realAdUnitId`
 3. **Google Play Console IAP**: create these **consumable** products; ids must match
    exactly (also in `BillingManager.PRODUCT_IDS` and the web `STORE`):
-   `coins_small`, `coins_big`, `gems_small`, `gems_big`.
+   `coins.5000`, `coins.30000`, `gems.small`, `gems.big`.
 4. **Signing**: create an upload keystore (`keytool -genkey ...`), then
    `cp keystore.properties.example keystore.properties` and fill in the 4 values.
    `keystore.properties` and `*.jks` are gitignored — back them up separately.

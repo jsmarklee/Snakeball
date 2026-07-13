@@ -608,10 +608,10 @@ const TOSS_CONTACTS_VIRAL_MODULE_ID = '';
 //    해당 상품은 구매 불가(fail-closed: 주문을 생성하지 않음). 서버 verifyWithToss 는
 //    콘솔 sku 와 지급용 내부 productId 를 매핑해야 하므로 서버측도 함께 채워야 한다.
 const TOSS_SKU_BY_ID = {
-    // coins_small: 'ait.xxxxxxxx',
-    // coins_big:   'ait.xxxxxxxx',
-    // gems_small:  'ait.xxxxxxxx',
-    // gems_big:    'ait.xxxxxxxx',
+    // 'coins.5000': 'ait.xxxxxxxx',
+    // 'coins.30000':   'ait.xxxxxxxx',
+    // 'gems.small':  'ait.xxxxxxxx',
+    // 'gems.big':    'ait.xxxxxxxx',
 };
 // getPendingOrders() 는 내부 id 가 아니라 sku(ait.xxx)를 준다 → 부팅 복구 시 sku→내부 id 역참조.
 const TOSS_ID_BY_SKU = Object.fromEntries(
@@ -691,10 +691,10 @@ const POWERUPS = [
 
 // IAP products (SKU ids must match native store + Cloud Function PRODUCTS map)
 const STORE = [
-    { id:'coins_small', kind:'iap', title:'Pouch of Coins', grant:{coins:5000},  price:'$0.99', em:'🪙' },
-    { id:'coins_big',   kind:'iap', title:'Chest of Coins',  grant:{coins:30000}, price:'$4.99', em:'🪙', best:'+20% bonus' },
-    { id:'gems_small',  kind:'iap', title:'Handful of Gems', grant:{gems:50},     price:'$2.99', em:'💎' },
-    { id:'gems_big',    kind:'iap', title:'Bag of Gems',     grant:{gems:200},    price:'$9.99', em:'💎', best:'+25% bonus' },
+    { id:'coins.5000', kind:'iap', title:'Pouch of Coins', grant:{coins:5000},  price:'$0.99', em:'🪙' },
+    { id:'coins.30000',   kind:'iap', title:'Chest of Coins',  grant:{coins:30000}, price:'$4.99', em:'🪙', best:'BEST VALUE' },
+    { id:'gems.small',  kind:'iap', title:'Handful of Gems', grant:{gems:50},     price:'$2.99', em:'💎' },
+    { id:'gems.big',    kind:'iap', title:'Bag of Gems',     grant:{gems:200},    price:'$9.99', em:'💎', best:'BEST VALUE' },
 ];
 
 const MISSION_POOL = [

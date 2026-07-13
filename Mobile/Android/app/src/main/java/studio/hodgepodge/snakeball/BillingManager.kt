@@ -26,8 +26,8 @@ class BillingManager(
         private const val TAG = "BillingManager"
         // SKUs must match the web layer's STORE and the Play Console product ids.
         val PRODUCT_IDS = listOf(
-            "coins_small", "coins_big",
-            "gems_small", "gems_big"
+            "coins.5000", "coins.30000",
+            "gems.small", "gems.big"
         )
     }
 

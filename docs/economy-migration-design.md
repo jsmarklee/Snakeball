@@ -83,7 +83,7 @@ Risks: breaking balances (capped max-not-sum import; test doc w/ existing IAP co
 1. Discard vs capped-import legacy balances — rec capped max-import; confirm caps (50k coins/500 gems).
 2. Power-up counts P0 or P1? scoped P1.
 3. Mission/daily progress client-side (cheatable claims) or server P0? rec client-progress/server-claim.
-4. IAP PRODUCTS coins (coins_small:5000, coins_big:30000) vs import cap — confirm cap above top SKU.
+4. IAP PRODUCTS coins (coins.5000:5000, coins.30000:30000) vs import cap — confirm cap above top SKU.
 
 ---
 
@@ -105,7 +105,7 @@ Trust-import is the ONLY dangerous part. Rules:
 3. owned_skins: import verbatim (cosmetic, low risk).
 4. Set economy_initialized:true (server-side) after import; subsequent calls ignore client balance.
 Note: reinstall-lost-paid-coins is a PRE-EXISTING risk (index.js:282-283); do NOT fix it by minting. If protecting reinstalled whales matters later → reconcile against unconsumed-IAP records, not a running total.
-Caps: IMPORT_CAP_COINS ≤ top SKU-ish (coins_big=30000). Propose 30000 coins / 300 gems (NOT 50k). Confirm with owner if a legit player could exceed.
+Caps: IMPORT_CAP_COINS ≤ top SKU-ish (coins.30000=30000). Propose 30000 coins / 300 gems (NOT 50k). Confirm with owner if a legit player could exceed.
 
 ## FC3 (was M3) — claimDaily → P0. claimMission → may stay P1.
 claimDaily needs NO client progress (server computes streak from daily.last + KST). Leaving it client = ~2000 coins/day faucet → must be P0.

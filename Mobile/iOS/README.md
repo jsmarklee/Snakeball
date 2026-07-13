@@ -52,8 +52,8 @@ xcodebuild build -project Snakeball.xcodeproj -scheme Snakeball \
    - `Info.plist` → `GADApplicationIdentifier`
    - `WebView.swift` → `RewardedAdManager.adUnitId` and `InterstitialAdManager.adUnitId`
 3. **App Store Connect IAP**: create these products (ids must match exactly):
-   `coins_small`, `coins_big`, `gems_small`, `gems_big` (Consumable);
-   `remove_ads`, `starter_pack` (Non-Consumable). For local simulator testing,
+   `coins.5000`, `coins.30000`, `gems.small`, `gems.big` (Consumable);
+   `remove.ads`, `starter.pack` (Non-Consumable). For local simulator testing,
    attach `Snakeball.storekit` in the scheme: Edit Scheme → Run → Options →
    StoreKit Configuration.
 4. **Signing**: open the project, select your Team (Automatic signing). Bundle id is
@@ -64,6 +64,6 @@ xcodebuild build -project Snakeball.xcodeproj -scheme Snakeball \
 
 ## Notes
 - Portrait-only, full screen, status bar hidden, scroll/bounce disabled.
-- `remove_ads` (and the Starter Pack) disable the between-runs interstitial; rewarded
+- `remove.ads` (and the Starter Pack) disable the between-runs interstitial; rewarded
   ads (revive, double coins) stay available since they are opt-in.
 - StoreKit 2 + `persistentSystemOverlays` require iOS 16+ (deployment target).

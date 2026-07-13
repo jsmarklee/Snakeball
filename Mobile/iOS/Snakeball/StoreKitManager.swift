@@ -12,12 +12,12 @@ class StoreKitManager: ObservableObject {
 
     /// Must match index.html STORE ids.
     private let productIds: Set<String> = [
-        "coins_small", "coins_big",
-        "gems_small", "gems_big",
-        "remove_ads", "starter_pack",
+        "coins.5000", "coins.30000",
+        "gems.small", "gems.big",
+        "remove.ads", "starter.pack",
     ]
     /// Non-consumables that must be restorable (App Store requirement).
-    private let nonConsumables: Set<String> = ["remove_ads", "starter_pack"]
+    private let nonConsumables: Set<String> = ["remove.ads", "starter.pack"]
 
     @Published private(set) var products: [Product] = []
     private var listener: Task<Void, Error>?

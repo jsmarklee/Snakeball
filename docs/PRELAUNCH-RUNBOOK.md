@@ -77,7 +77,7 @@
 | 값 | 발급처 | 넣는 곳 |
 |---|---|---|
 | **광고 ad group id** | Toss 개발자 콘솔 → 광고 | `index.html` 상단 `const TOSS_AD_GROUP_ID = ''` |
-| **IAP SKU 4종** (`ait.xxx`) | Toss 콘솔 → 상품 (등록 + ON) | ① 클라: `index.html` `TOSS_SKU_BY_ID = { coins_small:'ait…', coins_big:'ait…', gems_small:'ait…', gems_big:'ait…' }` ② 서버: `functions/iapVerification.js` `TOSS_SKU_TO_INTERNAL = { 'ait…':'coins_small', … }` (**역방향**) |
+| **IAP SKU 4종** (`ait.xxx`) | Toss 콘솔 → 상품 (등록 + ON) | ① 클라: `index.html` `TOSS_SKU_BY_ID = { 'coins.5000':'ait…', 'coins.30000':'ait…', 'gems.small':'ait…', 'gems.big':'ait…' }` ② 서버: `functions/iapVerification.js` `TOSS_SKU_TO_INTERNAL = { 'ait…':'coins.5000', … }` (**역방향**) |
 | `TOSS_IAP_API_KEY` | Toss 콘솔 | `firebase functions:secrets:set TOSS_IAP_API_KEY` |
 | `TOSS_IAP_BASE_URL` | 고정값 `https://apps-in-toss-api.toss.im` | `firebase functions:secrets:set TOSS_IAP_BASE_URL` |
 | `TOSS_MTLS_CERT` | Toss 콘솔 → mTLS 인증서 (client cert `.crt` PEM) | `firebase functions:secrets:set TOSS_MTLS_CERT` |
@@ -96,7 +96,7 @@
 | `GOOGLE_PLAY_SERVICE_ACCOUNT` | GCP 서비스계정 JSON (Play 연결, `androidpublisher` 권한) |
 
 ### IAP 상품 등록 (SKU 4종 전부 소비성) — `LAUNCH.md §D`
-`coins_small` / `coins_big` / `gems_small` / `gems_big` 를 ASC · Play Console 에 정확히 등록.
+`coins.5000` / `coins.30000` / `gems.small` / `gems.big` 를 ASC · Play Console 에 정확히 등록.
 (Toss 는 위 표대로 `ait.xxx` 자동생성 SKU 를 매핑.)
 
 ### AdMob — **rewarded 실 ID 는 이미 코드에 배선됨** (iOS/Android `ca-app-pub-1020671244071695/…`)
@@ -127,7 +127,7 @@ Game Center / Play Games 리더보드, iOS 프로비저닝, Android 키스토어
 
 ### 공통 (iOS/Android)
 1. TestFlight / Play 내부테스트 빌드 설치(실기기).
-2. **IAP 결제 손실 테스트**: coins_big 구매 → 지급 확인. **네트워크 끊고** 구매 → 복구 →
+2. **IAP 결제 손실 테스트**: coins.30000 구매 → 지급 확인. **네트워크 끊고** 구매 → 복구 →
    재접속 시 지급되는지(pending 큐/재전달). Ask-to-Buy(iOS)/미소비(Android) 승인분 지급 확인.
 3. **광고**: 부활 + 더블코인 실광고 시청 → 실지급. (testDeviceIds 등록 후 테스트 유닛으로.)
 4. **경제 마이그레이션**: 배포 전 잔액 있던 계정으로 첫 접속 → 잔액/스킨 보존 확인.

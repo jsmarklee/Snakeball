@@ -42,10 +42,10 @@ async function isTestAccount(db, uid) {
 // SKU(productId) → 지급량. 이 맵이 단일 진실 소스다. 클라이언트가 보낸
 // grant 금액은 무시되며, 여기 정의된 amount만 지급된다 (index.html STORE와 동기 유지).
 const PRODUCTS = {
-  coins_small: { coins: 5000 },
-  coins_big:   { coins: 30000 },
-  gems_small:  { gems: 50 },
-  gems_big:    { gems: 200 },
+  'coins.5000': { coins: 5000 },
+  'coins.30000':   { coins: 30000 },
+  'gems.small':  { gems: 50 },
+  'gems.big':    { gems: 200 },
 };
 
 // Toss 콘솔 자동생성 SKU(ait.xxx) → 내부 상품 id(PRODUCTS 키) 역참조 맵.
@@ -56,10 +56,10 @@ const PRODUCTS = {
 //       (LL40 rule7 "derive tier from the order"). → "싼 결제로 비싼 상품" 원천 차단 +
 //       앱이 죽어 getPendingOrders 가 orderId/sku 만 줘도 복구 가능.
 const TOSS_SKU_TO_INTERNAL = {
-  // 'ait.xxxxxxxx': 'coins_small',
-  // 'ait.xxxxxxxx': 'coins_big',
-  // 'ait.xxxxxxxx': 'gems_small',
-  // 'ait.xxxxxxxx': 'gems_big',
+  // 'ait.xxxxxxxx': 'coins.5000',
+  // 'ait.xxxxxxxx': 'coins.30000',
+  // 'ait.xxxxxxxx': 'gems.small',
+  // 'ait.xxxxxxxx': 'gems.big',
 };
 
 // ─── App Store Server API v2 ───────────────────────────────
