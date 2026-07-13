@@ -742,7 +742,8 @@ exports.verifyAndFulfillPurchase = onCall(
         || msg.startsWith("GOOGLE_PLAY_INVALID_STATE")
         || msg.startsWith("TOSS_VERIFICATION_FAILED")
         || msg.startsWith("TOSS_INVALID_STATE")
-        || msg.startsWith("NON_PRODUCTION_TRANSACTION")) {
+        || msg.startsWith("NON_PRODUCTION_TRANSACTION")
+        || msg === "TRANSACTION_REVOKED") {
         throw new HttpsError("permission-denied", "구매 검증에 실패했습니다.");
       }
       console.error("verifyAndFulfillPurchase error:", error);

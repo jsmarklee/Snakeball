@@ -129,6 +129,9 @@ async function verifyWithAppStore(transactionId, keyId, issuerId, privateKey, en
     productId: payload.productId,
     environment: payload.environment, // "Production" | "Sandbox"
     type: payload.type,
+    // 환불/취소된 트랜잭션은 revocationDate(ms)가 실린다. 지급부에서 거부(환불-후-재상환
+    // 어뷰징 차단). LL40 line85-86 / 감사 L1. (ASSN v2 클로백 미연동이라 사후 회수는 별도.)
+    revocationDate: payload.revocationDate ?? null,
   };
 }
 
@@ -356,6 +359,11 @@ async function verifyAndFulfill(uid, platform, transactionId, productId, secrets
       console.error(`Product ID mismatch (ios): verified=${verifiedData.productId}, claimed=${productId}`);
       throw new Error("PRODUCT_ID_MISMATCH");
     }
+    // 환불/취소된 트랜잭션 거부 (구매→환불승인→재검증 경로에서 verify 통과 방지). LL40 / 감사 L1.
+    if (verifiedData.revocationDate) {
+      console.error(`Rejecting revoked (refunded) transaction: uid=${uid} txId=${transactionId} revocationDate=${verifiedData.revocationDate}`);
+      throw new Error("TRANSACTION_REVOKED");
+    }
   } else if (platform === "android") {
     if (!PRODUCTS[productId]) throw new Error("INVALID_PRODUCT");
     const packageName = secrets.androidPackageName || BUNDLE_ID;
@@ -392,20 +400,28 @@ async function verifyAndFulfill(uid, platform, transactionId, productId, secrets
   const grant = PRODUCTS[effectiveProductId];
   if (!grant) throw new Error("INVALID_PRODUCT");
 
-  // 3-1. environment 강제 거부 (플레이북 §9-4 A1 — IAP 재구현 시 가장 자주 빠지는 컨트롤).
-  // Apple은 Production 401/404 시 Sandbox 엔드포인트로 폴백하므로 TestFlight/Sandbox
-  // 영수증이 environment:"Sandbox"로 검증 통과한다. Android 라이선스 테스트도 마찬가지.
-  // 지급부가 environment를 안 보면 테스터가 $0 결제로 실재화를 무한 발행할 수 있다.
-  // → 비-Production 트랜잭션은 config/test_accounts 화이트리스트에 든 caller만 허용.
-  // (Toss는 verifyWithToss가 항상 "Production"을 반환 → 영향 없음.)
+  // 3-1. 비-Production 게이트 — 플랫폼으로 결정 (LL40 rule4 caveat "resolve by platform,
+  //   don't gamble"). 이전엔 "비-Production 전부 거부 + test_accounts 예외"였는데, 그러면
+  //   App Review 심사관의 Sandbox 결제(익명 UID → 화이트리스트 불가)가 거부돼 2.1 리젝난다.
+  //   · iOS Sandbox: App Store Server API 가 검증(위조 불가) + 정식 스토어 유저는 Production
+  //     영수증만 받으므로 도달 불가 → ALLOW (심사관/TestFlight 가 상품 수령, 파밍 불가).
+  //   · Android Sandbox(purchaseType=0 라이선스 테스트) + Xcode 로컬: 패치 클라/개발 전용으로
+  //     도달 가능 → config/test_accounts 화이트리스트(형/QA UID)만 허용. Google 심사관은
+  //     라이선스-테스트로 결제하지 않으므로 차단해도 Play 심사엔 무관.
+  //   · Toss: verifyWithToss 가 항상 "Production" → 영향 없음.
+  //   (env==="Xcode"는 서버검증 단계에서 이미 죽어 3플랫폼 전부 데드코드지만 방어선으로 유지.)
+  //   캡 미도입: iOS Sandbox 캡은 심사관이 캡에 걸리면 곧 2.1 이라 리스크 비대칭이 나쁘고,
+  //   재화가 현금화 불가라 파밍 인센티브도 낮다. 공개 TestFlight 를 열 때만 넉넉한 캡 재고.
+  //   (Mineta 와 동일 게이트 — 이 패턴으로 심사 통과 확인됨.)
   const env = verifiedData?.environment;
   if (env && env !== "Production") {
-    const tester = await isTestAccount(db, uid);
-    if (!tester) {
+    const isTester = await isTestAccount(db, uid);
+    const blocked = !isTester && (env === "Xcode" || (env === "Sandbox" && platform !== "ios"));
+    if (blocked) {
       console.error(`Rejecting non-production transaction: uid=${uid} platform=${platform} env=${env} product=${effectiveProductId}`);
       throw new Error(`NON_PRODUCTION_TRANSACTION: ${env}`);
     }
-    console.log(`Allowing non-production transaction for test account: uid=${uid} env=${env}`);
+    console.log(`Allowing non-production transaction: uid=${uid} platform=${platform} env=${env} tester=${isTester}`);
   }
 
   // 4. Firestore 트랜잭션으로 원자적 dedup + 지급 (동시 구매 race condition 방지).
