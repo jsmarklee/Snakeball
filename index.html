@@ -26,7 +26,9 @@ canvas { display: block; width: 100%; height: 100%; }
     background: rgba(10, 10, 26, 0.85);
 }
 #main-menu h1 {
-    font-size: 60px; font-weight: 900; letter-spacing: 4px;
+    font-size: clamp(34px, 13.5vw, 60px); font-weight: 900;
+    letter-spacing: clamp(1px, 0.7vw, 4px);
+    max-width: 100%; padding: 0 8px; white-space: nowrap; box-sizing: border-box;
     background: linear-gradient(135deg, #67b0d1, #4ad585, #ebc85e, #e87352, #a965aa);
     -webkit-background-clip: text; -webkit-text-fill-color: transparent;
     background-clip: text; margin-bottom: 10px; text-transform: uppercase;
@@ -2625,6 +2627,23 @@ function playSound(type) {
     }
 }
 
+// Combo pitch ladder — a short chime that rises +1 semitone per combo step, layered
+// over the percussive breakCube. Turns a break streak into an ascending arpeggio so
+// higher combos *sound* higher (juice). `step` is the current combo count (>=2).
+function playComboTone(step) {
+    if (!soundEnabled || !audioCtx) return;
+    const now = audioCtx.currentTime;
+    const semis = Math.min(step - 1, 24);               // cap at 2 octaves
+    const freq = 330 * Math.pow(2, semis / 12);         // E4 base, +1 semitone / combo
+    const osc = audioCtx.createOscillator(), gain = audioCtx.createGain();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(freq, now);
+    gain.gain.setValueAtTime(0.06, now);
+    gain.gain.exponentialRampToValueAtTime(0.0008, now + 0.13);
+    osc.connect(gain); gain.connect(audioCtx.destination);
+    osc.start(now); osc.stop(now + 0.14);
+}
+
 // ============================================================
 // THREE.JS SETUP
 // ============================================================
@@ -2748,6 +2767,7 @@ let flickerTimer = 0;
 let megaFlickerTimer = 0;
 let playerWorldZ = 0; // track ball's world position for spawning
 let cameraShake = 0;  // camera shake intensity
+let hitStop = 0;      // seconds of impact-freeze remaining (juice: brief hold on a smash)
 
 // Tutorial
 let tutorialStep = 0;
@@ -3635,6 +3655,7 @@ function checkCollisions() {
                 cube.mesh.visible = false;
                 playSound('breakCube');
                 cameraShake = 0.1;
+                hitStop = Math.min(0.03 + combo * 0.004, 0.07);   // impact hold, grows with combo
                 hittingCube = false;
                 lastCube = null;
             } else if (shieldActive) {
@@ -3790,6 +3811,7 @@ function checkCollisions() {
             item.active = false;
             item.mesh.visible = false;
             playSound('getMega');
+            hitStop = 0.06;   // punchy hold on the mega pickup
         }
     }
 
@@ -3825,6 +3847,7 @@ function consumeBarShield(bar) {
 function triggerDeath() {
     if (pendingDeathHandled) return;
     pendingDeathHandled = true;
+    hideFirstRunHint();   // don't let the first-run banner linger over revive/result
     if (window.SB) SB.vibrate('error');
 
     const canRevive = revivesUsed < MAX_REVIVES;
@@ -4018,6 +4041,7 @@ function handleSwipeLeft() { moveRight(); }
 function handleSwipeUp() { jump(); }
 
 function moveLeft() {
+    hideFirstRunHint();
     if (!canSwipe || currentLane !== nextLane || currentLane === 0) return;
     canSwipe = false;
     nextLane = currentLane - 1;
@@ -4026,6 +4050,7 @@ function moveLeft() {
 }
 
 function moveRight() {
+    hideFirstRunHint();
     if (!canSwipe || currentLane !== nextLane || currentLane === NUMBER_OF_LANES - 1) return;
     canSwipe = false;
     nextLane = currentLane + 1;
@@ -4034,6 +4059,7 @@ function moveRight() {
 }
 
 function jump() {
+    hideFirstRunHint();
     if (!canJump) return;
     canJump = false;
     velocity.y = JUMP_SPEED;
@@ -4244,6 +4270,27 @@ function updateBestScoreDisplay() {
     }
 }
 
+// First-run control hint — a lightweight, NON-blocking banner shown once on the very
+// first play. It reuses #tutorial-overlay (pointer-events:none) so the game plays
+// normally underneath (no dead `gameState='tutorial'` softlock path). Auto-dismisses
+// on the first steer/jump or after a timeout.
+let _hintTimeout = null;
+function showFirstRunHint() {
+    // NB: this runs in the game module (script #2), which has no load()/save() — those
+    // live in the SB module (script #1). Use localStorage directly.
+    try { if (localStorage.getItem('sb_hintSeen_v1')) return; } catch (e) {}
+    try { localStorage.setItem('sb_hintSeen_v1', '1'); } catch (e) {}
+    tutorialText.innerHTML = '◀ Swipe to steer ▶' +
+        '<br><span style="font-size:15px;opacity:0.85">Swipe up ▲ to jump</span>';
+    tutorialOverlay.style.display = 'block';
+    if (_hintTimeout) clearTimeout(_hintTimeout);
+    _hintTimeout = setTimeout(hideFirstRunHint, 5000);
+}
+function hideFirstRunHint() {
+    if (_hintTimeout) { clearTimeout(_hintTimeout); _hintTimeout = null; }
+    if (tutorialOverlay && tutorialOverlay.style.display !== 'none') tutorialOverlay.style.display = 'none';
+}
+
 function startGame() {
     initAudio();
     gameState = 'playing';
@@ -4266,6 +4313,7 @@ function startGame() {
     ensureRoadsAndPatterns();
     updateUI();
     updateFollowingBalls();
+    showFirstRunHint();
 }
 
 function goHome() {
@@ -4642,6 +4690,7 @@ function addCombo() {
     combo++;
     comboTimer = COMBO_TIMEOUT;
     if (combo > bestComboThisRun) bestComboThisRun = combo;
+    if (combo >= 2) playComboTone(combo);   // ascending combo chime (juice)
     const el = comboDisplay();
     if (el) {
         if (combo >= 3) {
@@ -4843,6 +4892,11 @@ function update() {
     requestAnimationFrame(update);
 
     const dt = Math.min(clock.getDelta(), 0.05);
+
+    // Hit-stop: freeze the whole playing frame for a few ms on a solid smash. The last
+    // rendered frame persists (we skip sim+render), giving the impact a crisp "hold".
+    // getDelta() above already consumed this tick, so no dt spike when the freeze ends.
+    if (hitStop > 0 && gameState === 'playing') { hitStop -= dt; return; }
 
     if (gameState === 'playing' || gameState === 'tutorial') {
         // Tutorial logic
