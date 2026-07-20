@@ -2545,7 +2545,12 @@ const CUBE_TYPE_MAP = {
 // ============================================================
 let audioCtx = null;
 let soundEnabled = window.SB ? SB.soundOn() : true;
-window.__setSound = (on) => { soundEnabled = on; };
+window.__setSound = (on) => {
+    soundEnabled = on;
+    // Keep BGM in sync with the toggle mid-run.
+    if (!on) bgmStop();
+    else if (gameState === 'playing') bgmStart();
+};
 
 function initAudio() {
     if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -2642,6 +2647,65 @@ function playComboTone(step) {
     gain.gain.exponentialRampToValueAtTime(0.0008, now + 0.13);
     osc.connect(gain); gain.connect(audioCtx.destination);
     osc.start(now); osc.stop(now + 0.14);
+}
+
+// ---------- Procedural BGM ----------------------------------------------------
+// A low-volume neon-runner loop: i–VI–III–VII (Am–F–C–G) with a driving bass and a
+// rolling triangle arpeggio. Pure Web Audio synthesis (no assets). Uses a lookahead
+// scheduler (Tale of Two Clocks) so it never drifts, and sits UNDER the SFX via a
+// dedicated gain node. Starts on run start, stops on game-over / home, respects the
+// sound toggle, and rides the existing audioCtx suspend/resume (visibility) cleanly.
+let bgmGain = null;
+const bgm = { playing: false, step: 0, nextTime: 0, timer: null };
+const BGM_BPM = 126;
+const BGM_STEP = 60 / BGM_BPM / 2;          // eighth-note grid
+const BGM_BASS = [110.00, 87.31, 130.81, 98.00];   // A2, F2, C3, G2  (one per bar)
+const BGM_CHORDS = [                                 // arp tones per bar (4 tones)
+    [220.00, 261.63, 329.63, 440.00],   // Am: A3 C4 E4 A4
+    [174.61, 220.00, 261.63, 349.23],   // F : F3 A3 C4 F4
+    [261.63, 329.63, 392.00, 523.25],   // C : C4 E4 G4 C5
+    [196.00, 246.94, 293.66, 392.00],   // G : G3 B3 D4 G4
+];
+const BGM_ARP = [0, 1, 2, 3, 2, 1, 2, 3];   // arp index per eighth within a bar
+
+function bgmNote(freq, time, dur, level, type) {
+    const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+    o.type = type; o.frequency.setValueAtTime(freq, time);
+    g.gain.setValueAtTime(0.0001, time);
+    g.gain.exponentialRampToValueAtTime(level, time + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0008, time + dur);
+    o.connect(g); g.connect(bgmGain);
+    o.start(time); o.stop(time + dur + 0.02);
+}
+function bgmScheduleStep(step, time) {
+    const bar = Math.floor(step / 8) % 4;
+    const pos = step % 8;
+    if (pos === 0 || pos === 4) bgmNote(BGM_BASS[bar], time, 0.34, 0.16, 'triangle');   // bass on beats 1 & 3
+    bgmNote(BGM_CHORDS[bar][BGM_ARP[pos]], time, 0.20, 0.055, 'triangle');               // rolling arp
+}
+function bgmScheduler() {
+    if (!bgm.playing || !audioCtx) return;
+    if (audioCtx.state !== 'running') {          // suspended (backgrounded/paused) — idle
+        bgm.nextTime = audioCtx.currentTime + 0.05;
+        bgm.timer = setTimeout(bgmScheduler, 120);
+        return;
+    }
+    while (bgm.nextTime < audioCtx.currentTime + 0.2) {
+        bgmScheduleStep(bgm.step, bgm.nextTime);
+        bgm.nextTime += BGM_STEP;
+        bgm.step = (bgm.step + 1) % 32;          // 4 bars × 8 eighths
+    }
+    bgm.timer = setTimeout(bgmScheduler, 60);
+}
+function bgmStart() {
+    if (bgm.playing || !soundEnabled || !audioCtx) return;
+    if (!bgmGain) { bgmGain = audioCtx.createGain(); bgmGain.gain.value = 0.5; bgmGain.connect(audioCtx.destination); }
+    bgm.playing = true; bgm.step = 0; bgm.nextTime = audioCtx.currentTime + 0.08;
+    bgmScheduler();
+}
+function bgmStop() {
+    bgm.playing = false;
+    if (bgm.timer) { clearTimeout(bgm.timer); bgm.timer = null; }
 }
 
 // ============================================================
@@ -4293,6 +4357,7 @@ function hideFirstRunHint() {
 
 function startGame() {
     initAudio();
+    bgmStart();
     gameState = 'playing';
 
     // 온라인 리더보드 세션 발급 (fire-and-forget — 실패해도 게임엔 영향 없음)
@@ -4318,6 +4383,7 @@ function startGame() {
 
 function goHome() {
     gameState = 'menu';
+    bgmStop();
     pauseBtn.style.display = 'none';
     pauseScreen.style.display = 'none';
     resultScreen.style.display = 'none';
@@ -4400,6 +4466,7 @@ let coinsDoubled = false;
 
 function finalizeGameOver() {
     gameState = 'result';
+    bgmStop();
     pauseBtn.style.display = 'none';
 
     // Throw following balls
@@ -4668,9 +4735,44 @@ function updateCoins(dt) {
         if (ballPos.distanceTo(c.mesh.position) < 0.55) {
             c.active = false;
             c.mesh.visible = false;
+            flyCoinToHUD(c.mesh.position);
             collectCoin(1);
         }
     }
+}
+
+const _runCoinsEl = () => document.getElementById('run-coins');
+// Coin fly-to-HUD: on pickup, project the coin's 3D position to the screen and animate
+// a DOM coin into the run-coins counter (juice — the reward visibly "lands"). Pure
+// CSS transform transition; the element is short-lived.
+function flyCoinToHUD(worldPos) {
+    const target = _runCoinsEl();
+    if (!target || target.style.display === 'none' || !camera) return;
+    const v = worldPos.clone().project(camera);
+    if (v.z > 1) return;   // behind the camera
+    const sx = (v.x * 0.5 + 0.5) * window.innerWidth;
+    const sy = (-v.y * 0.5 + 0.5) * window.innerHeight;
+    const tr = target.getBoundingClientRect();
+    const tx = tr.left + tr.width / 2 - 9, ty = tr.top + tr.height / 2 - 9;
+    const el = document.createElement('div');
+    el.textContent = '🪙';
+    el.style.cssText = 'position:fixed;left:0;top:0;width:18px;height:18px;font-size:16px;' +
+        'line-height:18px;text-align:center;pointer-events:none;z-index:15;will-change:transform,opacity;' +
+        'transform:translate(' + sx + 'px,' + sy + 'px) scale(1.15);opacity:1;' +
+        'transition:transform .42s cubic-bezier(.55,0,.35,1),opacity .42s ease-in;';
+    document.body.appendChild(el);
+    requestAnimationFrame(() => {
+        el.style.transform = 'translate(' + tx + 'px,' + ty + 'px) scale(0.35)';
+        el.style.opacity = '0.15';
+    });
+    setTimeout(() => { el.remove(); bumpRunCoins(); }, 430);
+}
+function bumpRunCoins() {
+    const target = _runCoinsEl();
+    if (!target) return;
+    target.style.transition = 'transform .1s';
+    target.style.transform = 'scale(1.16)';
+    setTimeout(() => { target.style.transform = 'scale(1)'; }, 100);
 }
 
 function collectCoin(n) {

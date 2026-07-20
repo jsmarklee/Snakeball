@@ -3,6 +3,26 @@
 > /mark-polish 누적 기록. 최신이 위로. 다음 회차는 "다음 회차 백로그"에서 이어받는다.
 > 타입=게임(8축 /40). 채점 증거=실측 스크린샷(메뉴/게임플레이/상점) + 코드 인스펙션.
 
+## 2026-07-21 · mode=ship · focus=fun+art · branch=polish/2026-07-21-onboarding · cycle 2
+
+### 점수 (이전→이번)   ← 손 안 댄 축은 승계
+| 축 | 이전 | 이번 | 근거 |
+|---|---|---|---|
+| Fun / 게임필 | 3 | 3 | **BGM 엔진 도입**(절차 Am–F–C–G 네온 루프, lookahead 스케줄러, 전용 gain, sound 토글·visibility 존중) + **코인 fly-to-HUD** 연출. **BUT 오디오 출력·픽업 연출을 harness가 tab을 hidden으로 잡아(rAF/audioCtx 정지) 실측 못 함 → 점수 은행(banked), 4점은 실기기 오디오 QA 후.** BGM start 경로는 startGame 무에러 실행으로 검증. |
+| (그 외 7축) | — | 승계 | Content 3 · UI 4 · Onboarding 4 · Retention 3 · Money 4 · Polish 4 |
+
+**총점: 28 → 28 / 40** (Fun 은행 — 실기기 검증 시 → 29 예상)
+
+### 이번 회차 완료 (로컬 커밋만)
+- [~] BGM 정체성 — `bgmStart/bgmStop/bgmScheduler/bgmScheduleStep/bgmNote` (i–VI–III–VII, 126BPM, bgmGain 0.5 저볼륨), 라이프사이클: startGame 시작 / gameover·home 정지 / sound 토글·pause 연동. — 검증: **엔진 실행 무에러(startGame 정상 진입); 오디오 음질 미검증(harness hidden-tab).**
+- [~] 코인 fly-to-HUD — `flyCoinToHUD`(3D→스크린 투영 후 카운터로 CSS transform 이동) + `bumpRunCoins` 펄스, updateCoins 픽업에서 호출. — 검증: **로드/파싱/활성프레임 무에러; 픽업 연출 실측은 hidden-tab 전진정지로 미포착.**
+
+### 리스크 / 미검증
+- **실기기(또는 focus된 탭) 오디오·게임플레이 QA 필요**: BGM 음질·볼륨 밸런스, 콤보 사운드 사다리 체감, 히트스톱 체감, 코인 fly 연출. 전부 구현·무에러이나 harness 제약으로 런타임 실측 미완 → 다음 실기기 세션 최우선.
+- BGM 볼륨(bgmGain 0.5 × note 0.16/0.055)이 SFX 대비 과하거나 약할 수 있음 → 실청 후 조정 여지.
+
+---
+
 ## 2026-07-21 · mode=ship · focus=onboarding+fun · branch=polish/2026-07-21-onboarding · cycle 1
 
 ### 점수 (이전→이번)   ← 손 안 댄 축은 승계
