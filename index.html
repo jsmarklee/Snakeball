@@ -117,7 +117,7 @@ canvas { display: block; width: 100%; height: 100%; }
     display: none; pointer-events: none;
 }
 #tutorial-text {
-    position: absolute; bottom: 120px; left: 50%; transform: translateX(-50%);
+    position: absolute; bottom: 30%; left: 50%; transform: translateX(-50%);
     color: #fff; font-size: 20px; text-align: center; white-space: nowrap;
     text-shadow: 0 2px 10px rgba(0,0,0,0.8);
     animation: tutPulse 1s ease-in-out infinite;
@@ -4788,6 +4788,15 @@ function collectCoin(n) {
 // ============================================================
 const comboDisplay = () => document.getElementById('combo-display');
 function comboMultiplier() { return 1 + Math.floor(combo / 5) * 0.5; } // x1, x1.5 @5, x2 @10, ...
+// Combo colour ladder — the display heats up as the streak climbs, mirroring the
+// ascending combo chime so the reward is felt in sound AND colour.
+function comboTier(c) {
+    if (c >= 20) return { color: '#63f8cf', glow: '0 0 20px rgba(99,248,207,0.95)' };  // cyan (max)
+    if (c >= 15) return { color: '#c56cf0', glow: '0 0 17px rgba(197,108,240,0.9)' };   // magenta
+    if (c >= 10) return { color: '#ff4d6d', glow: '0 0 16px rgba(255,77,109,0.9)' };    // hot pink
+    if (c >= 5)  return { color: '#ff9f43', glow: '0 0 14px rgba(255,159,67,0.85)' };   // orange
+    return { color: '#ffd23f', glow: '0 0 12px rgba(255,210,63,0.75)' };                // gold
+}
 function addCombo() {
     combo++;
     comboTimer = COMBO_TIMEOUT;
@@ -4796,9 +4805,13 @@ function addCombo() {
     const el = comboDisplay();
     if (el) {
         if (combo >= 3) {
+            const t = comboTier(combo);
             el.style.display = 'block';
+            el.style.color = t.color;
+            el.style.textShadow = t.glow;
             el.innerHTML = combo + '<span class="mult"> COMBO  x' + comboMultiplier().toFixed(1) + '</span>';
-            el.style.transform = 'translateX(-50%) scale(1.25)';
+            const pop = combo >= 10 ? 1.4 : 1.25;   // bigger punch at high combos
+            el.style.transform = 'translateX(-50%) scale(' + pop + ')';
             requestAnimationFrame(() => { el.style.transition = 'transform 0.18s'; el.style.transform = 'translateX(-50%) scale(1)'; });
         }
     }
