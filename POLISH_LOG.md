@@ -3,6 +3,27 @@
 > /mark-polish 누적 기록. 최신이 위로. 다음 회차는 "다음 회차 백로그"에서 이어받는다.
 > 타입=게임(8축 /40). 채점 증거=실측 스크린샷(메뉴/게임플레이/상점) + 코드 인스펙션.
 
+## 2026-07-23 · mode=ship · focus=fun+ux · branch=main(오너 지시) · cycle 4 — 오너 피드백 반영
+
+> 오너가 라이브(snakeball-game.web.app)에서 실청·실플레이 후 준 피드백 3건 반영.
+
+### 이번 회차 완료
+- [x] **BGM 잔잔하게** — BPM 126→96, 파형 triangle→sine, 베이스 마디당 2회→1회(dur 0.34→0.90), 아르페지오 8분음 전부→4분음만(gain 0.055→0.030), 어택 0.02→0.06s(패드형), 마스터 `bgmGain` 0.5→0.34. 루프 10초. — 검증: 로드/토글 무에러. **음질은 오너 실청 대기.**
+- [x] **설정에 Music 스위치 (기본 OFF)** — `state.settings.bgm` 기본 false(기존 유저도 키 없음→OFF), 설정 행 추가, `SB.bgmOn()` + `window.__setBgm` 브리지, `bgmStart`가 `soundEnabled && bgmEnabled` 둘 다 요구(Sound=마스터). — 검증: **스샷(Sound ON/Music OFF/Haptics ON), 토글 시 `sb_settings.bgm:true` 영속 + 브리지 호출 무에러.**
+- [x] **Fast-fall (아래 스와이프 급강하)** — `fastFall()`: 공중일 때만(`canJump` false) `velocity.y = -18`. 터치/마우스 아래 스와이프 + `↓`/`S` 키 바인딩. 첫-실행 힌트에 "▼ down to drop fast" 추가(키 `sb_hintSeen_v1`→`v2`로 기존 유저도 1회 재노출). — 검증: 로드 무에러. **체감은 오너 실플레이 대기.**
+
+### 왜 fast-fall을 넣었나 (설계 근거)
+- `BAR_OVERHEAD`는 **y>0.9면 충돌** = "떠 있으면 죽는" 장애물(코드 주석: *overhead bars demand you STAY grounded*).
+- 점프 체공 **0.79s**(2·`JUMP_SPEED`11/`GRAVITY`28) → 허들 넘은 직후 오버헤드가 오면 **탈출 불가능한 강제 커밋**이었음. 반응력 문제가 아니라 설계 구멍.
+- 아래 스와이프는 미사용 제스처라 충돌 없음. 안 쓰면 난이도 불변(옵트인 스킬).
+- 착지 로직 무변경: `BOUNCE_SPEED` 1.5 = 반동 고작 0.04유닛 → 오버헤드 임계 0.9에 한참 못 미쳐 다시 걸릴 위험 없음.
+- 부수 개선: 스와이프 분기를 **지배축 우선**으로 정리 → 아래로 크게 스와이프할 때 좌우 조향이 오발동하던 것 제거.
+
+### 점수 영향
+승계(28/40). **주의: BGM이 기본 OFF(오너 결정)가 되면서 "BGM 정체성"은 옵트인** — 대다수 플레이어는 SFX-only. 따라서 Fun 축 4점 캡 해제는 더 이상 BGM만으로 논하기 어렵고, 히트스톱·콤보 사다리·코인fly·fast-fall 체감이 주 근거가 됨. 실기기 QA 후 재채점.
+
+---
+
 ## 2026-07-21 · mode=ship · focus=fun(juice)+ux · branch=polish/2026-07-21-onboarding · cycle 3
 
 ### 점수 (이전→이번)

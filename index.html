@@ -547,6 +547,7 @@ canvas { display: block; width: 100%; height: 100%; }
             <div class="sub" id="settings-platform"></div>
             <div class="setting-row" id="set-name-row" style="cursor:pointer">Nickname<span id="set-name-val" style="color:var(--mint);font-size:14px;font-weight:700">Anonymous</span></div>
             <div class="setting-row">Sound<div class="toggle on" id="set-sound"></div></div>
+            <div class="setting-row">Music<div class="toggle" id="set-bgm"></div></div>
             <div class="setting-row">Haptics<div class="toggle on" id="set-haptics"></div></div>
             <div class="setting-row" id="set-privacy-row" style="cursor:pointer">Privacy Policy<span style="color:#8a8aa8;font-size:16px">›</span></div>
             <div class="setting-row" id="set-terms-row" style="cursor:pointer">Terms of Service<span style="color:#8a8aa8;font-size:16px">›</span></div>
@@ -724,7 +725,7 @@ const state = {
     removeAds: load('sb_removeads', false),
     powerups: load('sb_powerups', { headstart:0, magnet:0, shield:0 }),
     armed:    load('sb_armed', { headstart:false, magnet:false, shield:false }),
-    settings: load('sb_settings', { sound:true, haptics:true }),
+    settings: load('sb_settings', { sound:true, haptics:true, bgm:false }),   // bgm opt-in (default off)
     daily:    load('sb_daily', { last:'', streak:0 }),
     missions: load('sb_missions', null),
     stats:    load('sb_stats', { games:0, cubes:0, coins:0, megas:0, revives:0, bestRunScore:0, bestCombo:0, bestBalls:0 }),
@@ -1524,6 +1525,7 @@ function renderSettings() {
     if ($('set-version-val')) $('set-version-val').textContent = 'v' + APP_VERSION;
     if ($('set-name-val')) $('set-name-val').textContent = state.name || 'Anonymous';
     if ($('set-sound')) $('set-sound').classList.toggle('on', state.settings.sound);
+    if ($('set-bgm')) $('set-bgm').classList.toggle('on', !!state.settings.bgm);
     if ($('set-haptics')) $('set-haptics').classList.toggle('on', state.settings.haptics);
     renderXpromoGames();
 }
@@ -2431,6 +2433,7 @@ function wire() {
         else $('daily-modal').classList.remove('open');   // already claimed → just close
     });
     onTap($('set-sound'), () => { state.settings.sound = !state.settings.sound; persist(); renderSettings(); if (window.__setSound) window.__setSound(state.settings.sound); });
+    onTap($('set-bgm'), () => { state.settings.bgm = !state.settings.bgm; persist(); renderSettings(); if (window.__setBgm) window.__setBgm(state.settings.bgm); });
     onTap($('set-haptics'), () => { state.settings.haptics = !state.settings.haptics; persist(); renderSettings(); });
     onTap($('set-name-row'), () => promptName());
     onTap($('set-privacy-row'), () => openExternal(LEGAL.privacy));
@@ -2478,6 +2481,7 @@ window.SB = {
     toast,
     hasRemoveAds: () => state.removeAds,
     soundOn: () => state.settings.sound,
+    bgmOn: () => !!state.settings.bgm,
     hapticsOn: () => state.settings.haptics,
     openShop,
     // ---- Online leaderboard ----
@@ -2545,11 +2549,19 @@ const CUBE_TYPE_MAP = {
 // ============================================================
 let audioCtx = null;
 let soundEnabled = window.SB ? SB.soundOn() : true;
+// BGM is a separate opt-in switch (defaults OFF) — some players want SFX only.
+// It is gated by the master Sound toggle: Sound off ⇒ everything silent.
+let bgmEnabled = window.SB && SB.bgmOn ? SB.bgmOn() : false;
 window.__setSound = (on) => {
     soundEnabled = on;
     // Keep BGM in sync with the toggle mid-run.
     if (!on) bgmStop();
     else if (gameState === 'playing') bgmStart();
+};
+window.__setBgm = (on) => {
+    bgmEnabled = on;
+    if (!on) bgmStop();
+    else if (gameState === 'playing' && soundEnabled) bgmStart();
 };
 
 function initAudio() {
@@ -2657,7 +2669,7 @@ function playComboTone(step) {
 // sound toggle, and rides the existing audioCtx suspend/resume (visibility) cleanly.
 let bgmGain = null;
 const bgm = { playing: false, step: 0, nextTime: 0, timer: null };
-const BGM_BPM = 126;
+const BGM_BPM = 96;                         // calm, ambient pace
 const BGM_STEP = 60 / BGM_BPM / 2;          // eighth-note grid
 const BGM_BASS = [110.00, 87.31, 130.81, 98.00];   // A2, F2, C3, G2  (one per bar)
 const BGM_CHORDS = [                                 // arp tones per bar (4 tones)
@@ -2672,7 +2684,7 @@ function bgmNote(freq, time, dur, level, type) {
     const o = audioCtx.createOscillator(), g = audioCtx.createGain();
     o.type = type; o.frequency.setValueAtTime(freq, time);
     g.gain.setValueAtTime(0.0001, time);
-    g.gain.exponentialRampToValueAtTime(level, time + 0.02);
+    g.gain.exponentialRampToValueAtTime(level, time + 0.06);   // soft attack (pad-like)
     g.gain.exponentialRampToValueAtTime(0.0008, time + dur);
     o.connect(g); g.connect(bgmGain);
     o.start(time); o.stop(time + dur + 0.02);
@@ -2680,8 +2692,9 @@ function bgmNote(freq, time, dur, level, type) {
 function bgmScheduleStep(step, time) {
     const bar = Math.floor(step / 8) % 4;
     const pos = step % 8;
-    if (pos === 0 || pos === 4) bgmNote(BGM_BASS[bar], time, 0.34, 0.16, 'triangle');   // bass on beats 1 & 3
-    bgmNote(BGM_CHORDS[bar][BGM_ARP[pos]], time, 0.20, 0.055, 'triangle');               // rolling arp
+    // Sparse + sine = calm. One soft root per bar, arp only on quarter notes.
+    if (pos === 0) bgmNote(BGM_BASS[bar], time, 0.90, 0.09, 'sine');
+    if (pos % 2 === 0) bgmNote(BGM_CHORDS[bar][BGM_ARP[pos]], time, 0.50, 0.030, 'sine');
 }
 function bgmScheduler() {
     if (!bgm.playing || !audioCtx) return;
@@ -2698,8 +2711,8 @@ function bgmScheduler() {
     bgm.timer = setTimeout(bgmScheduler, 60);
 }
 function bgmStart() {
-    if (bgm.playing || !soundEnabled || !audioCtx) return;
-    if (!bgmGain) { bgmGain = audioCtx.createGain(); bgmGain.gain.value = 0.5; bgmGain.connect(audioCtx.destination); }
+    if (bgm.playing || !soundEnabled || !bgmEnabled || !audioCtx) return;
+    if (!bgmGain) { bgmGain = audioCtx.createGain(); bgmGain.gain.value = 0.34; bgmGain.connect(audioCtx.destination); }
     bgm.playing = true; bgm.step = 0; bgm.nextTime = audioCtx.currentTime + 0.08;
     bgmScheduler();
 }
@@ -4098,11 +4111,13 @@ let hasSwiped = false;
 function handleMoveLeft() { moveRight(); }
 function handleMoveRight() { moveLeft(); }
 function handleMoveUp() { jump(); }
+function handleMoveDown() { fastFall(); }
 
 // Swipe handlers for touch/mouse
 function handleSwipeRight() { moveLeft(); }
 function handleSwipeLeft() { moveRight(); }
 function handleSwipeUp() { jump(); }
+function handleSwipeDown() { fastFall(); }
 
 function moveLeft() {
     hideFirstRunHint();
@@ -4133,6 +4148,21 @@ function jump() {
     playSound('jump');
 }
 
+// Fast-fall — swipe down (or ↓/S) while airborne to dive back to the road.
+// Why it exists: overhead bars (BAR_OVERHEAD) kill you for being above y=0.9, but a
+// jump commits you to ~0.79s of air (2·JUMP_SPEED/GRAVITY). Without a bail-out, an
+// overhead that appears mid-arc is unavoidable rather than reactable. Grounded input
+// is ignored, so players who never use it keep the exact same game.
+// Landing behaviour is untouched: BOUNCE_SPEED is 1.5 (~0.04 units of hop), far below
+// the 0.9 overhead threshold, so the existing bounce can't fling you back into a bar.
+const DIVE_SPEED = 18;
+function fastFall() {
+    hideFirstRunHint();
+    if (canJump) return;                                        // already grounded
+    if (velocity.y > -DIVE_SPEED) velocity.y = -DIVE_SPEED;     // never slow an existing faster drop
+    playSound('move');
+}
+
 // Keyboard
 document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' || e.key === 'p' || e.key === 'P') {
@@ -4145,6 +4175,7 @@ document.addEventListener('keydown', (e) => {
         case 'ArrowLeft': case 'a': case 'A': handleMoveLeft(); break;
         case 'ArrowRight': case 'd': case 'D': handleMoveRight(); break;
         case 'ArrowUp': case 'w': case 'W': case ' ': handleMoveUp(); break;
+        case 'ArrowDown': case 's': case 'S': handleMoveDown(); break;
     }
 });
 
@@ -4172,8 +4203,9 @@ document.addEventListener('touchmove', (e) => {
 
     if (adx > threshold || ady > threshold) {
         hasSwiped = true;
-        if (ady > adx && dy < -threshold) {
-            handleSwipeUp();
+        if (ady > adx) {
+            if (dy < -threshold) handleSwipeUp();
+            else if (dy > threshold) handleSwipeDown();
         } else if (dx > threshold) {
             handleSwipeRight();
         } else if (dx < -threshold) {
@@ -4205,8 +4237,9 @@ document.addEventListener('mousemove', (e) => {
 
     if (Math.abs(dx) > threshold || Math.abs(dy) > threshold) {
         hasSwiped = true;
-        if (Math.abs(dy) > Math.abs(dx) && dy < -threshold) {
-            handleSwipeUp();
+        if (Math.abs(dy) > Math.abs(dx)) {
+            if (dy < -threshold) handleSwipeUp();
+            else if (dy > threshold) handleSwipeDown();
         } else if (dx > threshold) {
             handleSwipeRight();
         } else if (dx < -threshold) {
@@ -4342,10 +4375,11 @@ let _hintTimeout = null;
 function showFirstRunHint() {
     // NB: this runs in the game module (script #2), which has no load()/save() — those
     // live in the SB module (script #1). Use localStorage directly.
-    try { if (localStorage.getItem('sb_hintSeen_v1')) return; } catch (e) {}
-    try { localStorage.setItem('sb_hintSeen_v1', '1'); } catch (e) {}
+    // v2: controls gained a fast-fall, so re-show the hint once even to existing players.
+    try { if (localStorage.getItem('sb_hintSeen_v2')) return; } catch (e) {}
+    try { localStorage.setItem('sb_hintSeen_v2', '1'); } catch (e) {}
     tutorialText.innerHTML = '◀ Swipe to steer ▶' +
-        '<br><span style="font-size:15px;opacity:0.85">Swipe up ▲ to jump</span>';
+        '<br><span style="font-size:15px;opacity:0.85">▲ up to jump · ▼ down to drop fast</span>';
     tutorialOverlay.style.display = 'block';
     if (_hintTimeout) clearTimeout(_hintTimeout);
     _hintTimeout = setTimeout(hideFirstRunHint, 5000);
