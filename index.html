@@ -148,6 +148,19 @@ canvas { display: block; width: 100%; height: 100%; }
 }
 .pill:active { transform: scale(0.94); }
 .pill .ico { font-size: 16px; }
+
+/* Coin icon — drawn in CSS rather than the 🪙 emoji, which Apple renders as a SILVER
+   coin (Android/Windows render it gold). The in-world pickup is gold
+   (MeshStandardMaterial color 0xffd23f, emissive 0xaa7a00, metalness 0.9), so the
+   emoji made a gold coin visibly turn silver as it flew into the HUD. These stops
+   mirror that material: bright core, #ffd23f body, darkened rim. */
+.coin-ico {
+    display: inline-block; width: 1em; height: 1em; border-radius: 50%;
+    background: radial-gradient(circle at 34% 30%,
+        #fff6c2 0%, #ffd23f 40%, #eaa81b 70%, #a8730a 100%);
+    box-shadow: inset 0 0 0 0.075em rgba(255,255,255,0.4), 0 0 0.4em rgba(255,210,63,0.45);
+    vertical-align: -0.12em; flex-shrink: 0;
+}
 .pill .plus { color: var(--mint); font-weight: 900; margin-left: 2px; }
 
 /* Home action buttons */
@@ -433,7 +446,7 @@ canvas { display: block; width: 100%; height: 100%; }
 
 <div id="ui-overlay">
     <div id="top-bar">
-        <div class="pill" id="coins-pill"><span class="ico">🪙</span><span id="coins-amount">0</span><span class="plus">＋</span></div>
+        <div class="pill" id="coins-pill"><span class="ico coin-ico"></span><span id="coins-amount">0</span><span class="plus">＋</span></div>
         <div class="pill" id="gems-pill"><span class="ico">💎</span><span id="gems-amount">0</span><span class="plus">＋</span></div>
     </div>
 
@@ -457,7 +470,7 @@ canvas { display: block; width: 100%; height: 100%; }
     <div id="game-ui">
         <div id="score-display">0</div>
         <div id="ball-count"></div>
-        <div id="run-coins" style="display:none">🪙 <span id="run-coins-amount">0</span></div>
+        <div id="run-coins" style="display:none"><span class="coin-ico"></span> <span id="run-coins-amount">0</span></div>
         <div id="combo-display"></div>
         <div id="mega-timer-wrap">
             <div id="mega-timer-bar"></div>
@@ -491,10 +504,10 @@ canvas { display: block; width: 100%; height: 100%; }
         <div id="final-score">0</div>
         <div id="new-best">NEW BEST!</div>
         <div id="best-score-result"></div>
-        <div id="result-coins">🪙 +<span id="result-coins-amount">0</span></div>
+        <div id="result-coins"><span class="coin-ico"></span> +<span id="result-coins-amount">0</span></div>
         <div id="result-extra"></div>
         <div id="result-buttons">
-            <button class="big-btn ad" id="double-coins">▶ DOUBLE 🪙</button>
+            <button class="big-btn ad" id="double-coins">▶ DOUBLE <span class="coin-ico"></span></button>
             <button class="big-btn" id="play-again">PLAY AGAIN</button>
         </div>
         <button class="big-btn ghost" id="back-home" style="max-width:340px;margin-top:10px">HOME</button>
@@ -4569,7 +4582,7 @@ function finalizeGameOver() {
     dbl.disabled = false;
     // Hide double-coins when there are no base coins OR ads are off/unavailable. (21 §9-6)
     dbl.style.display = (lastRunBaseCoins > 0 && window.SB && SB.canShowRewardedAd()) ? '' : 'none';
-    dbl.innerHTML = '▶ DOUBLE 🪙 (+' + lastRunBaseCoins + ')';
+    dbl.innerHTML = '▶ DOUBLE <span class="coin-ico"></span> (+' + lastRunBaseCoins + ')';
 
     // Delay showing result screen (let the throw animation play)
     setTimeout(() => {
@@ -4788,10 +4801,12 @@ function flyCoinToHUD(worldPos) {
     const sy = (-v.y * 0.5 + 0.5) * window.innerHeight;
     const tr = target.getBoundingClientRect();
     const tx = tr.left + tr.width / 2 - 9, ty = tr.top + tr.height / 2 - 9;
+    // Same CSS gold as .coin-ico / the 3D pickup — an emoji here rendered silver on
+    // Apple platforms, so the coin visibly changed colour in mid-flight.
     const el = document.createElement('div');
-    el.textContent = '🪙';
-    el.style.cssText = 'position:fixed;left:0;top:0;width:18px;height:18px;font-size:16px;' +
-        'line-height:18px;text-align:center;pointer-events:none;z-index:15;will-change:transform,opacity;' +
+    el.className = 'coin-ico';
+    el.style.cssText = 'position:fixed;left:0;top:0;width:18px;height:18px;font-size:18px;' +
+        'pointer-events:none;z-index:15;will-change:transform,opacity;' +
         'transform:translate(' + sx + 'px,' + sy + 'px) scale(1.15);opacity:1;' +
         'transition:transform .42s cubic-bezier(.55,0,.35,1),opacity .42s ease-in;';
     document.body.appendChild(el);
