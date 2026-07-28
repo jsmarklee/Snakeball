@@ -11,62 +11,131 @@
   main { max-width: 720px; margin: 0 auto; padding: 32px 20px 80px; }
   h1 { font-size: 26px; margin: 0 0 4px; }
   h2 { font-size: 18px; margin: 28px 0 8px; color: #63f8cf; }
+  h3 { font-size: 15px; margin: 18px 0 6px; color: #cfcfe4; }
   .updated { color: #8a8aa8; font-size: 13px; margin-bottom: 24px; }
-  .ph { background: #3a2a10; color: #ffd23f; border-radius: 4px; padding: 0 4px; font-size: 0.9em; }
   a { color: #63f8cf; }
   code { background: #1c1c30; padding: 1px 5px; border-radius: 4px; font-size: 0.9em; }
   ul { padding-left: 22px; }
-  footer { margin-top: 40px; color: #8a8aa8; font-size: 13px; }
+  li { margin: 6px 0; }
+  footer { margin-top: 40px; color: #8a8aa8; font-size: 13px; border-top: 1px solid #26263c; padding-top: 16px; }
 </style>
 </head>
 <body>
 <main>
   <h1>Snakeball — Privacy Policy</h1>
-  <p class="updated">Last updated: <span class="ph">[PLACEHOLDER — set publication date]</span></p>
+  <p class="updated">Last updated: July 28, 2026</p>
 
-  <p><span class="ph">[PLACEHOLDER DRAFT — replace with legal-reviewed copy before store submission. The
-  sections below list what the app actually touches so this is a real starting point, not lorem ipsum.]</span></p>
+  <p>Snakeball (“the app”, “the game”) is developed and operated by <strong>Hodgepodge Studio</strong>
+  (“we”, “us”). This policy explains what data the game collects and how it is used. We collect only the
+  minimum information needed to run the game. Questions:
+  <a href="mailto:support@hodgepodge.studio">support@hodgepodge.studio</a>.</p>
 
-  <p>This policy explains what Snakeball (“the app”, “we”) collects and how it is used. Snakeball is
-  published by <span class="ph">[PLACEHOLDER — legal entity name]</span> (contact:
-  <a href="mailto:support@hodgepodge.studio">support@hodgepodge.studio</a>).</p>
+  <h2>1. Information we collect</h2>
 
-  <h2>Information we collect</h2>
+  <h3>Automatically, when you play</h3>
   <ul>
-    <li><strong>Anonymous account.</strong> A Firebase anonymous user ID is created on first launch to store your
-      progress (coins, gems, owned skins, power-ups) on our servers.</li>
-    <li><strong>Leaderboard identity.</strong> A nickname you choose and your best score, shown on the public leaderboard.</li>
-    <li><strong>Device identifier.</strong> A per-install device identifier (Apple IDFV / Android <code>ANDROID_ID</code>)
-      used to restore your account after reinstalling on the same device.</li>
-    <li><strong>Advertising.</strong> We show rewarded ads via Google AdMob, which may access an advertising
-      identifier and device information. <span class="ph">[PLACEHOLDER — confirm AdMob data disclosure]</span></li>
-    <li><strong>Purchases.</strong> In-app purchases are processed by the App Store / Google Play /
-      Apps-in-Toss. We receive a purchase receipt/token to verify and grant the item; we do not receive your
-      payment card details.</li>
+    <li><strong>Anonymous account ID</strong> — Firebase Authentication creates a random user ID so your
+      progress can be saved on our servers. We do not ask for your name, email address, or phone number.</li>
+    <li><strong>Device-stable identifier</strong> — your Apple Vendor ID (IDFV) or Android ID, used only so
+      you can recover your account if you reinstall the game on the same device.</li>
+    <li><strong>Game data</strong> — coins, gems, owned ball skins, power-ups, daily-reward streak, mission
+      progress, best score, and your settings (sound, music, haptics).</li>
+    <li><strong>IP address</strong> — automatically logged by Firebase, and by AdMob where ads are shown,
+      for security and abuse prevention. It is never displayed to other players.</li>
   </ul>
 
-  <h2>How we use it</h2>
+  <h3>That you provide</h3>
   <ul>
-    <li>To save and sync your game progress and purchases.</li>
-    <li>To operate the leaderboard and daily rewards/missions.</li>
-    <li>To show ads and prevent fraud/abuse.</li>
+    <li><strong>Nickname</strong> — shown on the public global leaderboard and visible to other players.
+      Nicknames are limited to 1–16 characters and are checked against a blocked-words list on our server
+      before being saved. You can change yours at any time in Settings.</li>
   </ul>
 
-  <h2>Sharing</h2>
-  <p>We use Google Firebase (auth, database, cloud functions) and Google AdMob.
-  <span class="ph">[PLACEHOLDER — list any other processors; link their policies]</span></p>
+  <h3>From Apple, Google, or Toss when you make a purchase</h3>
+  <ul>
+    <li><strong>Transaction receipts</strong> — the store sends us a signed receipt so we can verify the
+      purchase and grant the item. We do <em>not</em> receive your card number, billing address, or your
+      Apple / Google / Toss account details.</li>
+  </ul>
 
-  <h2>Data retention &amp; deletion</h2>
-  <p>You can delete your server-side data (nickname, score, balances, device identifier) from the app’s
-  Settings → “Delete my data”. <span class="ph">[PLACEHOLDER — describe retention period]</span></p>
+  <h3>Tracking</h3>
+  <p><strong>We do not track you across other companies’ apps or websites.</strong> Snakeball does not
+  request App Tracking Transparency permission and does not use the iOS Advertising Identifier (IDFA); the
+  app’s privacy manifest declares <code>NSPrivacyTracking = false</code>. Where ads are shown they are
+  non-personalized. Ad and platform providers may still collect device and usage signals under their own
+  policies (see section 3).</p>
 
-  <h2>Children</h2>
-  <p><span class="ph">[PLACEHOLDER — age rating / children’s privacy statement]</span></p>
+  <h2>2. How we use information</h2>
+  <ul>
+    <li>Run the game — save your progress, currencies, and unlocks across sessions and devices</li>
+    <li>Operate the global leaderboard, daily rewards, and missions</li>
+    <li>Verify in-app purchases and grant the corresponding items</li>
+    <li>Show optional rewarded video ads and grant their rewards</li>
+    <li>Prevent fraud, cheating, and abuse (including score validation and purchase-replay protection)</li>
+  </ul>
+  <p>We do not use your data for advertising profiles or for automated decisions that produce legal effects.</p>
 
-  <h2>Changes</h2>
-  <p>We may update this policy; the “Last updated” date reflects the latest revision.</p>
+  <h2>3. Third-party services</h2>
+  <ul>
+    <li><strong>Google Firebase</strong> — Authentication, Firestore, Cloud Functions —
+      <a href="https://firebase.google.com/support/privacy" target="_blank" rel="noopener">policy</a></li>
+    <li><strong>Google AdMob</strong> — rewarded video ads —
+      <a href="https://policies.google.com/privacy" target="_blank" rel="noopener">policy</a></li>
+    <li><strong>Apple Game Center</strong> (iOS) / <strong>Google Play Games</strong> (Android) — optional
+      native leaderboard submission</li>
+    <li><strong>Apple StoreKit</strong>, <strong>Google Play Billing</strong>, <strong>Apps in Toss</strong> —
+      purchase processing and receipt verification, handled by the platform</li>
+  </ul>
 
-  <footer>Questions? <a href="mailto:support@hodgepodge.studio">support@hodgepodge.studio</a></footer>
+  <h2>4. Data sharing</h2>
+  <p>We do not sell, rent, or share your personal data with third parties for marketing purposes. Your
+  nickname and best score appear on the public leaderboard by design. We may disclose data only where
+  required by law.</p>
+
+  <h2>5. Data retention</h2>
+  <p>We keep your account data for as long as you keep using the game. If you delete your data (see
+  section 6) it is removed from our systems within 30 days. Anti-fraud records such as processed transaction
+  identifiers may be kept longer, without profile data attached, to prevent purchase replay.</p>
+
+  <h2>6. Your rights and choices</h2>
+  <ul>
+    <li><strong>Delete</strong> — Settings → “Delete My Data” removes your account and its server-side data.
+      This cannot be undone.</li>
+    <li><strong>Access / portability</strong> — email us for a copy of the data linked to your account.</li>
+    <li><strong>Correct</strong> — change your nickname at any time in Settings.</li>
+    <li><strong>Transfer</strong> — Settings → “Recovery Code” issues a code that moves your account to
+      another device. Keep it private: anyone holding it can claim the account.</li>
+    <li><strong>Object / restrict</strong> — email us to ask that we stop processing your data.</li>
+  </ul>
+  <p>To exercise any of these rights, email
+  <a href="mailto:support@hodgepodge.studio">support@hodgepodge.studio</a>. We respond within 30 days.</p>
+
+  <h2>7. Children’s privacy</h2>
+  <p>Snakeball is a casual arcade game suitable for a general audience and is not directed at children under
+  13. It contains no chat or user-to-user messaging. We do not knowingly collect personally identifiable
+  information from children under 13. If you believe a child has provided us with personal data, contact us
+  and we will delete it.</p>
+
+  <h2>8. International transfers</h2>
+  <p>Our servers run on Google Cloud in the <code>asia-northeast3</code> (Seoul) region. Apple, Google, Toss,
+  and ad providers may process data in other countries under their own safeguards.</p>
+
+  <h2>9. Security</h2>
+  <p>All network traffic uses HTTPS/TLS. Server-side rules restrict who can read or write each record, and
+  currency balances, purchases, and leaderboard scores are validated on our servers rather than trusted from
+  the device. No system is perfectly secure, but we work to protect your information.</p>
+
+  <h2>10. Changes</h2>
+  <p>We may update this policy. The “Last updated” date above reflects the most recent change. Continued use
+  after an update constitutes acceptance.</p>
+
+  <h2>11. Contact</h2>
+  <p>Hodgepodge Studio — <a href="mailto:support@hodgepodge.studio">support@hodgepodge.studio</a></p>
+
+  <footer>
+    See also the <a href="terms.html">Terms of Service</a>.<br>
+    © 2026 Hodgepodge Studio. All rights reserved.
+  </footer>
 </main>
 </body>
 </html>
