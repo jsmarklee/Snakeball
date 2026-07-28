@@ -10,6 +10,7 @@ import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
 import android.provider.Settings
+import com.google.ads.mediation.admob.AdMobAdapter
 import android.view.View
 import android.view.WindowManager
 import android.webkit.ConsoleMessage
@@ -57,11 +58,15 @@ class MainActivity : ComponentActivity() {
         val testDeviceIds = listOf<String>(
             // "PASTE_HASH_FROM_LOGCAT_HERE",
         )
-        if (testDeviceIds.isNotEmpty()) {
-            MobileAds.setRequestConfiguration(
-                RequestConfiguration.Builder().setTestDeviceIds(testDeviceIds).build()
-            )
-        }
+        // setRequestConfiguration is applied UNCONDITIONALLY — it used to run only when
+        // testDeviceIds was non-empty, which meant the content-rating cap silently never
+        // applied in a shipping build.
+        MobileAds.setRequestConfiguration(
+            RequestConfiguration.Builder()
+                .setTestDeviceIds(testDeviceIds)
+                .setMaxAdContentRating(RequestConfiguration.MAX_AD_CONTENT_RATING_PG)
+                .build()
+        )
         MobileAds.initialize(this) {}
         loadRewardedAd()
 
@@ -238,7 +243,15 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun loadRewardedAd() {
-        val adRequest = AdRequest.Builder().build()
+        // Force non-personalized ads. static/privacy.html tells players ads are
+        // non-personalized, and iOS delivers that for free (no ATT prompt, so no IDFA) —
+        // but Android declares AD_ID in the manifest, so a bare AdRequest would serve
+        // personalized ads the moment ADS_ENABLED flips on, contradicting the policy.
+        // (EEA consent via UMP/CMP is a separate, console-side task — see LAUNCH-AUDIT.)
+        val npaExtras = Bundle().apply { putString("npa", "1") }
+        val adRequest = AdRequest.Builder()
+            .addNetworkExtrasBundle(AdMobAdapter::class.java, npaExtras)
+            .build()
         val testAdUnitId = "ca-app-pub-3940256099942544/5224354917" // Google test rewarded (Android)
         val realAdUnitId = "ca-app-pub-1020671244071695/2878083384" // snakeball-android-rewarded
         val adUnitId = if (useRealAds()) realAdUnitId else testAdUnitId

@@ -6,11 +6,11 @@
   "description": "Snakeball — a simple, addictive casual endless runner for iOS, Android and Apps in Toss.",
   "scripts": {
     "dev": "granite dev",
-    "build": "granite build",
     "build:web": "vite build",
     "preview": "vite preview",
     "sync:public": "rm -rf public && mkdir -p public && cp index.html public/index.html && cp -R static/. public/",
-    "deploy:web": "npm run sync:public && firebase deploy --only hosting",
+    "deploy:rules": "firebase deploy --only firestore:rules",
+    "deploy:web": "npm run sync:public && firebase deploy --only hosting && npm run deploy:rules",
     "toss:build": "ait build",
     "toss:deploy": "ait deploy"
   },

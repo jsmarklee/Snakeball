@@ -6,6 +6,13 @@ import { defineConfig } from 'vite';
 // Toss webview and any sub-path hosting.
 export default defineConfig({
   base: './',
+  // ⚠️ publicDir MUST stay false. Vite's default is <root>/public — which in this repo
+  // is NOT a source dir but the gitignored Firebase Hosting staging dir that
+  // `npm run sync:public` wipes and regenerates. Leaving it at the default copied
+  // ~1.2 MB of already-hosted files (app-icon.png, privacy.html, terms.html) into the
+  // Toss .ait, none of it reachable, and would silently merge stale hashed chunks if a
+  // public/assets/ ever appeared.
+  publicDir: false,
   build: {
     target: 'es2018',
     outDir: 'dist/web',

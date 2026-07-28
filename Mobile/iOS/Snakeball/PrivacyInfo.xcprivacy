@@ -1,5 +1,27 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Snakeball privacy manifest. Keep in sync with static/privacy.html.
+
+  What the app actually collects, and why each entry below exists:
+    NSPrivacyCollectedDataTypeUserID          anonymous Firebase uid
+    NSPrivacyCollectedDataTypeDeviceID        IDFV, sent only to recoverAccount
+    NSPrivacyCollectedDataTypeGameplayContent coins/gems/skins/missions/bestScore
+    NSPrivacyCollectedDataTypePurchaseHistory IAP receipts + processed-transaction ledger
+  All of these live on the SAME users/{uid} document, so every one is Linked=true.
+  (The previous version declared only DeviceID with Linked=false, which was wrong on
+  both counts, and gave it a ThirdPartyAdvertising purpose that contradicted
+  NSPrivacyTracking=false in this very file.)
+
+  NSPrivacyTracking stays false: the app never requests App Tracking Transparency, never
+  reads the IDFA, and the IDFV goes to our own backend only — never to AdMob. Ads are
+  therefore non-personalized.
+
+  Why this matters even though Apple only validates the accessed-API section at upload:
+  Xcode's generated privacy report is what you consult when filling the App Store Connect
+  nutrition label, so an under-declared manifest propagates into an under-declared label,
+  and THAT is a 5.1.1 rejection path.
+-->
 <plist version="1.0">
 <dict>
     <key>NSPrivacyTracking</key>
@@ -10,15 +32,50 @@
     <array>
         <dict>
             <key>NSPrivacyCollectedDataType</key>
-            <string>NSPrivacyCollectedDataTypeDeviceID</string>
+            <string>NSPrivacyCollectedDataTypeUserID</string>
             <key>NSPrivacyCollectedDataTypeLinked</key>
-            <false/>
+            <true/>
             <key>NSPrivacyCollectedDataTypeTracking</key>
             <false/>
             <key>NSPrivacyCollectedDataTypePurposes</key>
             <array>
                 <string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
-                <string>NSPrivacyCollectedDataTypePurposeThirdPartyAdvertising</string>
+            </array>
+        </dict>
+        <dict>
+            <key>NSPrivacyCollectedDataType</key>
+            <string>NSPrivacyCollectedDataTypeDeviceID</string>
+            <key>NSPrivacyCollectedDataTypeLinked</key>
+            <true/>
+            <key>NSPrivacyCollectedDataTypeTracking</key>
+            <false/>
+            <key>NSPrivacyCollectedDataTypePurposes</key>
+            <array>
+                <string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+            </array>
+        </dict>
+        <dict>
+            <key>NSPrivacyCollectedDataType</key>
+            <string>NSPrivacyCollectedDataTypeGameplayContent</string>
+            <key>NSPrivacyCollectedDataTypeLinked</key>
+            <true/>
+            <key>NSPrivacyCollectedDataTypeTracking</key>
+            <false/>
+            <key>NSPrivacyCollectedDataTypePurposes</key>
+            <array>
+                <string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+            </array>
+        </dict>
+        <dict>
+            <key>NSPrivacyCollectedDataType</key>
+            <string>NSPrivacyCollectedDataTypePurchaseHistory</string>
+            <key>NSPrivacyCollectedDataTypeLinked</key>
+            <true/>
+            <key>NSPrivacyCollectedDataTypeTracking</key>
+            <false/>
+            <key>NSPrivacyCollectedDataTypePurposes</key>
+            <array>
+                <string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
             </array>
         </dict>
     </array>
