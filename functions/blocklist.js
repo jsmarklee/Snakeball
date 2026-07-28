@@ -47,10 +47,31 @@ const LEET_MAP = {
 // ========================
 // 3. NORMALIZE
 // ========================
-function normalize(input) {
-  if (!input) return "";
-  let s = input.toLowerCase();
-  s = s.normalize("NFC");
+// 키릴/그리스 동형이의 문자(homoglyph) — NFKC 가 접지 못하는 범위.
+// 주의: 여기서 접은 결과는 "판정용 후보"로만 쓴다(checkBlocklist 참조). 정상 키릴 이름
+// (снежок 등)을 파괴하지 않으면서 'ѕех' 같은 위장만 잡기 위함.
+const HOMOGLYPH_MAP = {
+  "а": "a", "в": "b", "с": "c", "е": "e", "н": "h", "і": "i", "ј": "j", "к": "k",
+  "м": "m", "о": "o", "р": "p", "ѕ": "s", "т": "t", "у": "y", "х": "x",
+  "α": "a", "β": "b", "ε": "e", "ι": "i", "κ": "k", "ο": "o", "ρ": "p", "τ": "t", "υ": "u", "ν": "v",
+};
+function foldHomoglyphs(s) {
+  return s.split("").map((c) => HOMOGLYPH_MAP[c] || c).join("");
+}
+
+// fold=true 면 허용범위 스트립 **전에** 동형이의 문자를 라틴으로 접는다. 스트립 뒤에
+// 접으면 키릴/그리스는 이미 제거된 뒤라 'ѕех' 가 빈 문자열이 되어 그대로 통과한다.
+function normalize(input, fold) {
+  // 문자열이 아니면 빈 문자열로. 현재 유일한 호출부(sanitizeName)가 typeof 로 먼저 막지만,
+  // 모듈 자체가 던지지 않게 둔다 — 새 호출부가 생겨도 500 이 나지 않도록.
+  if (typeof input !== "string" || !input) return "";
+  // NFKC 를 toLowerCase 보다 **먼저**. NFKC 가 전각(ｆｕｃｋ)·수학 볼드(𝐟𝐮𝐜𝐤)·
+  // 원문자(ⓕⓤⓒⓚ) 같은 호환 변형을 평문 ASCII 로 접는다. 순서를 뒤집으면 𝐅𝐔𝐂𝐊 가
+  // FUCK 로 남아 소문자 HARD_SET 과 어긋난다.
+  // (이전 코드는 NFC + "허용 범위 밖 제거" 라서 이 변형들이 전부 빈 문자열이 되어
+  //  통과했다 — 전각은 한국어/일본어 IME 에서 한 키다.)
+  let s = input.normalize("NFKC").toLowerCase();
+  if (fold) s = foldHomoglyphs(s);
   // 허용 문자 범위: 라틴, 한글(완성형+호환자모+자모), 일어, 한자만 남김
   s = s.replace(/[^\x00-\x7F가-힣ᄀ-ᇿㄱ-ㅎㅏ-ㅣぁ-んァ-ヶ一-龥]/g, "");
   // Leet substitution
@@ -83,10 +104,16 @@ function matchWord(normalized, blockedWord) {
 // ========================
 function checkBlocklist(name) {
   const normalized = normalize(name);
-  if (!normalized) return { blocked: false };
-  for (const word of HARD_SET) {
-    if (matchWord(normalized, word)) {
-      return { blocked: true };
+  // 동형이의 문자를 접은 형태도 함께 검사한다. 접은 결과를 normalize() 안에 넣지 않는
+  // 이유: 정상 키릴/그리스 이름이 라틴으로 뭉개져 엉뚱하게 걸리는 걸 막기 위해서다.
+  // 여기서는 "둘 중 하나라도 금칙어면 차단" 이라 정상 이름은 원본 판정으로 통과한다.
+  const candidates = new Set([normalized, normalize(name, true)]);
+  for (const cand of candidates) {
+    if (!cand) continue;
+    for (const word of HARD_SET) {
+      if (matchWord(cand, word)) {
+        return { blocked: true };
+      }
     }
   }
   return { blocked: false };

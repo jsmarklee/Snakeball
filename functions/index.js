@@ -50,11 +50,20 @@ const tossMtlsKey = defineSecret("TOSS_MTLS_KEY");
 // 콤보 배수는 5콤보마다 +0.5 (x1 → x1.5 @5 → x2 @10 ...)로 사실상 상한이 있고,
 // 큐브 점수도 HP 비례라 초당 수백 점이 현실적인 상한이다. 따라서:
 //   - MAX_SCORE_PER_SEC: 초당 허용 점수. 매우 빠른 콤보 폭발을 감안해 넉넉히 300.
-//   - BASE_BUFFER: 게임 시작 직후 짧은 세션의 초기 버스트 + 시계 오차 흡수용 2000.
-// 검증식: score <= MAX_SCORE_PER_SEC * elapsedSeconds + BASE_BUFFER.
-// 정상 플레이는 절대 못 넘고, 명백한 조작(예: 5초에 100만 점)만 걸린다.
+//   - BASE_BUFFER: 0초 세션에 허용하는 고정 여유분.
+// 검증식: score <= MAX_SCORE_PER_SEC * min(elapsedSeconds, MAX_CREDITED_SECONDS) + BASE_BUFFER.
 const MAX_SCORE_PER_SEC = 300;
-const BASE_BUFFER = 2000;
+// ⚠️ BASE_BUFFER 를 다시 올리지 말 것. 이전 값 2000 은 주석에 "시계 오차 흡수"라고
+//    적혀 있었지만 **사실이 아니다** — startedAt 은 FieldValue.serverTimestamp() 이고
+//    비교 대상도 서버 Date.now() 라 클라 시계가 개입할 여지가 없다. 그 결과 startRun →
+//    즉시 submitScore({score:2000}) 만으로 플레이 없이 리더보드 1위를 먹을 수 있었다
+//    (2026-07 기준 실제 1위 137점). 남는 실제 여유는 startRun 왕복 지연뿐이고,
+//    minInstances 1→0 이후 콜드스타트가 커진 걸 감안해도 200 이면 충분하다.
+const BASE_BUFFER = 200;
+// 경과시간 크레딧 상한 — 세션을 열어두고 30분(SESSION_TTL_MS)을 흘려보내면
+// 300 * 1800 = 540,000 점이 "정상"으로 통과했다. 실제 런은 볼 공급 한계 때문에
+// 이 근처까지 가지 못하므로 10분에서 자른다.
+const MAX_CREDITED_SECONDS = 600;
 // 절대 상한 — 어떤 세션 길이여도 이 이상은 비현실적.
 const ABSOLUTE_MAX_SCORE = 100_000_000;
 // 세션 TTL — 너무 오래된 세션으로 제출 시도 차단 (30분).
@@ -181,7 +190,8 @@ exports.submitScore = onCall({ region: REGION, minInstances: 0 }, async (request
 
   // ── 2) 안티치트 점수 상한 ──
   const elapsedSeconds = Math.max(0, (Date.now() - startedAtMs) / 1000);
-  const maxAllowed = MAX_SCORE_PER_SEC * elapsedSeconds + BASE_BUFFER;
+  const creditedSeconds = Math.min(elapsedSeconds, MAX_CREDITED_SECONDS);
+  const maxAllowed = MAX_SCORE_PER_SEC * creditedSeconds + BASE_BUFFER;
   if (score > maxAllowed) {
     // 세션은 이미 used 처리됨 — 조작 점수는 그냥 거부.
     throw new HttpsError("failed-precondition", "점수가 검증을 통과하지 못했습니다.");
@@ -547,6 +557,9 @@ function mapEconomyError(err) {
     RATE_LIMITED: ["resource-exhausted", "잠시 후 다시 시도해주세요."],
     REWARDED_LIMIT_REACHED: ["resource-exhausted", "오늘 보상 한도에 도달했습니다."],
     REVIVE_LIMIT_REACHED: ["resource-exhausted", "오늘 부활 한도에 도달했습니다."],
+    // ⚠️ 이 항목이 MAP 에 없으면 internal 로 떨어지고, 클라(index.html)는 internal 을
+    //    TRANSIENT 로 분류해 오프라인 큐에서 영원히 재시도한다.
+    MISSION_LIMIT_REACHED: ["resource-exhausted", "오늘 미션 보상을 모두 받았습니다."],
     ALREADY_OWNED: ["already-exists", "이미 보유한 스킨입니다."],
     ALREADY_CLAIMED: ["already-exists", "이미 받았습니다."],
     ALREADY_DOUBLED: ["already-exists", "이미 받았습니다."],

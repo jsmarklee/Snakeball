@@ -30,6 +30,12 @@ const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
 //      기존 유저의 createdAt 이 컷오프보다 뒤가 되어 임포트 대상에서 빠진다(잔액 증발)."
 const MIGRATION_CUTOFF_MS = Date.parse("2026-07-11T00:00:00Z");
 
+// 하루에 청구 가능한 데일리 미션 수. 클라(index.html ensureMissions)가 MISSION_POOL 8개
+// 중 3개를 뽑아 localStorage 에만 보관하므로 서버는 "선택된 3개가 무엇인지" 알 수 없다.
+// 따라서 신원이 아니라 개수로 상한을 건다. 두 값이 어긋나면 정상 유저가 마지막 미션을
+// 못 받으므로, 클라의 뽑기 개수를 바꿀 땐 여기도 같이 바꿔야 한다.
+const MISSIONS_PER_DAY = 3;
+
 /** Firestore Timestamp | epoch ms | ISO 문자열 → epoch ms (없으면 null). */
 function toMillis(ts) {
   if (ts == null) return null;
@@ -608,6 +614,12 @@ async function claimMission(uid, missionId) {
       ? { date: todayKey, claimed: { ...(data.missions.claimed || {}) } }
       : { date: todayKey, claimed: {} };
     if (missions.claimed[missionId]) throw new Error("ALREADY_CLAIMED");
+    // 하루 3개까지만. 데일리 3종은 클라가 MISSION_POOL 8개에서 Math.random 으로 뽑아
+    // localStorage 에만 두므로, 서버는 "어떤 3개인지" 알 수 없다. 그래서 신원 대신
+    // **개수**로 막는다 — 이게 없으면 스크립트가 매일 8개 전부 청구할 수 있다.
+    if (Object.keys(missions.claimed).length >= MISSIONS_PER_DAY) {
+      throw new Error("MISSION_LIMIT_REACHED");
+    }
     missions.claimed[missionId] = true;
 
     const bal = await applyBalanceDelta(tx, userRef, data,
