@@ -34,6 +34,10 @@ targets:
         TARGETED_DEVICE_FAMILY: "1"
         SWIFT_VERSION: "5.0"
         CODE_SIGN_STYLE: Automatic
+        # Signing team. Kept here (not only in the generated .xcodeproj) because
+        # `xcodegen generate` rewrites project.pbxproj from this file — without it,
+        # every regeneration silently drops the team and Archive fails to sign.
+        DEVELOPMENT_TEAM: G5JLFMM2WV
         # Game Center capability (entitlement). USER: enable Game Center on the App ID
         # in the Apple Developer portal and create the leaderboard in App Store Connect.
         CODE_SIGN_ENTITLEMENTS: Snakeball/Snakeball.entitlements
