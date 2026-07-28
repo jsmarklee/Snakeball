@@ -230,13 +230,21 @@ canvas { display: block; width: 100%; height: 100%; }
     border: 1px solid rgba(99,248,207,0.25); border-radius: 22px; padding: 22px;
     box-shadow: 0 20px 60px rgba(0,0,0,0.6); position: relative;
     -webkit-overflow-scrolling: touch;
+    display: flex; flex-direction: column;   /* lets .modal-close stick (see below) */
 }
 .modal h2 {
     color: #fff; font-size: 22px; font-weight: 800; margin-bottom: 4px; text-align: center;
 }
 .modal .sub { color: #8a8aa8; font-size: 13px; text-align: center; margin-bottom: 18px; }
+/* Sticky, not absolute: the modal is the scroll container, so an absolutely
+   positioned ✕ scrolled away with the content — Shop → Skins overflows on every
+   phone, leaving no visible close button. Sticky keeps it pinned while scrolling.
+   The negative margin lets it overlap the heading row as before, so the centred
+   <h2> keeps its full line box (a float would shift the title). */
 .modal-close {
-    position: absolute; top: 14px; right: 14px; width: 32px; height: 32px;
+    position: sticky; top: 0; align-self: flex-end; flex: none;
+    margin-bottom: -32px; z-index: 2;
+    width: 32px; height: 32px;
     border-radius: 16px; background: rgba(255,255,255,0.1); border: none; color: #fff;
     font-size: 18px; cursor: pointer; line-height: 1;
 }

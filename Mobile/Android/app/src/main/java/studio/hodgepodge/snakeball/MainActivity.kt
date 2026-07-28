@@ -39,6 +39,8 @@ private const val GAME_BG = "#0a0a1a"
 
 class MainActivity : ComponentActivity() {
     private lateinit var webView: WebView
+    private var rootContainer: FrameLayout? = null
+    private var offlineOverlay: View? = null
     private var rewardedAd: RewardedAd? = null
     private var pendingRewardEarned: Boolean = false
     private var rewardCallbackFired: Boolean = false
@@ -146,7 +148,14 @@ class MainActivity : ComponentActivity() {
             settings.allowContentAccess = true
             settings.databaseEnabled = true
             settings.mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
-            settings.cacheMode = WebSettings.LOAD_NO_CACHE
+            // LOAD_DEFAULT, not LOAD_NO_CACHE. NO_CACHE applied to every subresource, so
+            // each cold start re-downloaded ~390 KB gzipped — including the three.js and
+            // Firebase CDN bundles that ship `max-age=31536000, immutable`. Instant game
+            // updates are unaffected: Firebase Hosting serves the entry document as
+            // `no-cache, max-age=0, must-revalidate` (verified by curl), so index.html is
+            // always revalidated. Do NOT use LOAD_CACHE_ELSE_NETWORK — that would serve a
+            // stale build.
+            settings.cacheMode = WebSettings.LOAD_DEFAULT
             settings.mediaPlaybackRequiresUserGesture = false
             // Disable pinch/zoom — this is a full-screen game, not a document.
             settings.setSupportZoom(false)
@@ -166,13 +175,35 @@ class MainActivity : ComponentActivity() {
                 override fun onPageFinished(view: WebView?, url: String?) {
                     super.onPageFinished(view, url)
                     android.util.Log.i("SB_WebView", "✅ Loading finished: $url")
+                    hideOfflineOverlay()
                 }
 
                 override fun onReceivedError(view: WebView?, request: android.webkit.WebResourceRequest?, error: android.webkit.WebResourceError?) {
                     super.onReceivedError(view, request, error)
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                         android.util.Log.e("SB_WebView", "❌ Resource Error [${request?.url}]: ${error?.description}")
+                        // Only the MAIN frame means "the game didn't load" — a failed
+                        // subresource must not cover a working game. Ports the iOS
+                        // behaviour (WebView.swift); without it a network drop left
+                        // Chrome's raw ERR_INTERNET_DISCONNECTED page inside a branded
+                        // game with no way out but force-quit.
+                        if (request?.isForMainFrame == true) showOfflineOverlay()
                     }
+                }
+
+                override fun onRenderProcessGone(
+                    view: WebView?,
+                    detail: android.webkit.RenderProcessGoneDetail?
+                ): Boolean {
+                    // The renderer was killed (usually OOM in the background). Without
+                    // handling this the whole Activity is torn down by the system.
+                    android.util.Log.e("SB_WebView", "❌ Render process gone — reloading")
+                    view?.let {
+                        (it.parent as? android.view.ViewGroup)?.removeView(it)
+                        it.destroy()
+                    }
+                    recreate()
+                    return true
                 }
 
                 override fun onReceivedHttpError(view: WebView?, request: android.webkit.WebResourceRequest?, errorResponse: android.webkit.WebResourceResponse?) {
@@ -206,6 +237,7 @@ class MainActivity : ComponentActivity() {
                 FrameLayout.LayoutParams.MATCH_PARENT
             ))
         }
+        rootContainer = container
         setContentView(container)
 
         // Hardware back: navigate WebView history if possible, otherwise send the task
@@ -374,8 +406,68 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /**
+     * Full-screen "can't connect" overlay with a Retry button, shown when the MAIN frame
+     * fails to load. Mirrors the iOS implementation in WebView.swift so both wrappers
+     * behave the same. Built in code rather than a layout XML to keep the wrapper a
+     * single file, and styled with GAME_BG so it reads as part of the game.
+     */
+    private fun showOfflineOverlay() {
+        if (offlineOverlay != null) return
+        val root = rootContainer ?: return
+        val pad = (16 * resources.displayMetrics.density).toInt()
+
+        val title = android.widget.TextView(this).apply {
+            text = "Can't connect"
+            setTextColor(Color.WHITE)
+            textSize = 20f
+            gravity = android.view.Gravity.CENTER
+        }
+        val body = android.widget.TextView(this).apply {
+            text = "Check your connection and try again."
+            setTextColor(Color.parseColor("#8a8aa8"))
+            textSize = 14f
+            gravity = android.view.Gravity.CENTER
+            setPadding(pad, pad / 2, pad, pad)
+        }
+        val retry = android.widget.Button(this).apply {
+            text = "Retry"
+            setOnClickListener {
+                hideOfflineOverlay()
+                webView.reload()
+            }
+        }
+        val column = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            gravity = android.view.Gravity.CENTER
+            setPadding(pad * 2, pad * 2, pad * 2, pad * 2)
+            addView(title); addView(body); addView(retry)
+        }
+        val overlay = FrameLayout(this).apply {
+            setBackgroundColor(Color.parseColor(GAME_BG))
+            isClickable = true          // swallow taps so the dead WebView can't be touched
+            addView(column, FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                android.view.Gravity.CENTER
+            ))
+        }
+        root.addView(overlay, FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT,
+            FrameLayout.LayoutParams.MATCH_PARENT
+        ))
+        offlineOverlay = overlay
+    }
+
+    private fun hideOfflineOverlay() {
+        offlineOverlay?.let { (it.parent as? android.view.ViewGroup)?.removeView(it) }
+        offlineOverlay = null
+    }
+
     override fun onDestroy() {
         billingManager.destroy()
+        hideOfflineOverlay()
+        rootContainer = null
         if (::webView.isInitialized) {
             webView.removeJavascriptInterface("AndroidBridge")
             (webView.parent as? android.view.ViewGroup)?.removeView(webView)
