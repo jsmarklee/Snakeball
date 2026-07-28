@@ -101,7 +101,7 @@ function sanitizeName(raw) {
  * game_sessions/{token} = { uid, startedAt, used:false } 생성.
  * 반환: { sessionToken }.
  */
-exports.startRun = onCall({ region: REGION, minInstances: 1 }, async (request) => {
+exports.startRun = onCall({ region: REGION, minInstances: 0 }, async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "인증이 필요합니다.");
   }
@@ -127,7 +127,7 @@ exports.startRun = onCall({ region: REGION, minInstances: 1 }, async (request) =
  *     users/{uid}.bestScore 갱신
  *  4) 반환: { best, rank }
  */
-exports.submitScore = onCall({ region: REGION, minInstances: 1 }, async (request) => {
+exports.submitScore = onCall({ region: REGION, minInstances: 0 }, async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "인증이 필요합니다.");
   }
@@ -471,7 +471,7 @@ const CROSSPROMO_REWARDS = {
 const CROSSPROMO_LIFETIME_MAX_COINS = 15;   // 계정 평생 크로스프로모 코인 상한
 const CROSSPROMO_RATE_LIMIT_MS = 30 * 1000; // 연속 청구 throttle (lastCrossPromoClaim)
 
-exports.claimCrossPromoReward = onCall({ region: REGION, minInstances: 1 }, async (request) => {
+exports.claimCrossPromoReward = onCall({ region: REGION, minInstances: 0 }, async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "인증이 필요합니다.");
   }
