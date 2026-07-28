@@ -6,9 +6,17 @@ Firestore 룰, IAP SKU 정합성, 시크릿·함수 배포 상태, 백필 상태
 
 ---
 
+> **2026-07-28 갱신 — B1·B2 해소됨.** 아이콘 3플랫폼 배치 완료(커밋 `13a79d9`), 법무 문구
+> 실문구 교체 완료(커밋 `42fc346`), `minInstances` 1→0 배포 완료(커밋 `23d071d`).
+> **남은 블로커는 B3(릴리스 키스토어) 하나 — 오너만 가능.**
+> 배포 검증: privacy/terms/app-icon 전부 HTTP 200 · 플레이스홀더 0 · `getEconomyStatus`
+> 708ms(콜드스타트) · `startRun` 세션 발급 정상 · 콘솔 에러 0 · 배포 함수 minInstanceCount=0.
+
+---
+
 ## 🔴 블로커 — 이대로면 제출 불가
 
-### B1. 앱 아이콘이 3플랫폼 전부 없음
+### ✅ B1. 앱 아이콘 (해소 2026-07-28)
 | 플랫폼 | 상태 | 결과 |
 |---|---|---|
 | iOS | `Assets.xcassets/AppIcon.appiconset` 에 `Contents.json` 만, **PNG 0개** (1024 슬롯에 `filename` 없음) | App Store Connect 업로드 **거부** |
@@ -18,7 +26,7 @@ Firestore 룰, IAP SKU 정합성, 시크릿·함수 배포 상태, 백필 상태
 리포 전체에 아이콘 소스 PNG **없음**. `LAUNCH.md §B` 가 말한 `/tmp/sb_icon.png` 플레이스홀더는 사라짐.
 → **아이콘 1종(1024×1024) 확정이 최우선 블로커.** 확정되면 3플랫폼 배치는 코드작업으로 처리 가능.
 
-### B2. 개인정보처리방침 / 이용약관이 플레이스홀더인 채 라이브
+### ✅ B2. 개인정보처리방침 / 이용약관 (해소 2026-07-28 — 스튜디오 문구 기반, Snakeball 사실로 교정)
 `static/privacy.html` 8곳, `static/terms.html` 7곳에 `[PLACEHOLDER — …]` 잔존 (라이브 200 응답).
 미기재: **법인명 · 시행일 · 환불/청약철회 정책 · 아동 개인정보(연령등급) · 책임한계/준거법 · AdMob 데이터 공시 · 보관기간**.
 → Apple/Google 심사 게이트. 한국 전자상거래법/개인정보보호법 이슈도 동반.
@@ -38,7 +46,7 @@ Firestore 룰, IAP SKU 정합성, 시크릿·함수 배포 상태, 백필 상태
 | O3 | **Play Games 리더보드** | `games_app_id = 0000000000` | Android 네이티브 리더보드 미동작 (서버 리더보드는 정상). |
 | O4 | **Toss IAP SKU** | 클라 `TOSS_SKU_BY_ID` / 서버 `TOSS_SKU_TO_INTERNAL` **양쪽 비어있음** | Toss 결제 불가. 양쪽 fail-closed라 죽은 버튼은 없음(안전). 콘솔 SKU 발급 후 **같은 커밋에 양쪽 동시** 반영. |
 | O5 | **Toss 광고 그룹 ID** | `TOSS_AD_GROUP_ID = ''` | Toss 광고 미노출(게이트로 버튼 숨김 — 안전). |
-| O6 | **미커밋 변경** | `functions/index.js`: `minInstances` 1→0 (startRun/submitScore/claimCrossPromoReward) | 콜드스타트 허용 = 상시 인스턴스 과금 제거. 커밋 + 배포 여부 결정 필요. |
+| ~~O6~~ | ~~미커밋 변경~~ | ✅ **완료** — 커밋 `23d071d` + 배포. 실측 `minInstanceCount=0` 확인, 콜드스타트 708ms. | 상시 인스턴스 과금 제거됨. |
 | O7 | **IAP 상품 등록 / 서명 / 콘솔** | `LAUNCH.md §D/§F/§G/§H` 미완 | 4종 SKU(`coins.5000`/`coins.30000`/`gems.small`/`gems.big`) ASC·Play 등록, iOS 프로비저닝, Toss 콘솔. |
 | O8 | **`config/test_accounts`** | 미확인(콘솔 작업) | 비워두면 Sandbox/TestFlight 결제가 `permission-denied`. IAP E2E 전 본인 UID 등록 필요, 출시 후 제거. |
 
