@@ -582,7 +582,7 @@ canvas { display: block; width: 100%; height: 100%; }
         <div class="modal">
             <button class="modal-close" data-close>✕</button>
             <h2>🏆 Leaderboard</h2>
-            <div class="sub">전 세계 최고 점수 TOP 50</div>
+            <div class="sub">Top 50 worldwide</div>
             <div id="leaderboard-native"></div>
             <div id="leaderboard-head"></div>
             <div id="leaderboard-body"></div>
@@ -1652,20 +1652,20 @@ captureStableIdAndRecover();
 // showRecoveryCode — 복구 코드 발급 + 자동 클립보드 복사 + 표시.
 // message로 안내 문구를 바꿀 수 있다(결제 직후 프롬프트용).
 async function showRecoveryCode(message) {
-    if (!lbAvailable || !fbFns) { toast('복구 기능을 사용할 수 없어요'); return; }
+    if (!lbAvailable || !fbFns) { toast('Recovery is unavailable right now'); return; }
     try {
         const uid = await getUid();
-        if (!uid) { toast('복구 기능을 사용할 수 없어요'); return; }
+        if (!uid) { toast('Recovery is unavailable right now'); return; }
         const res = await fbFns.httpsCallable('generateRecoveryCode')();
         const code = res?.data?.code;
-        if (!code) { toast('코드 생성 실패'); return; }
+        if (!code) { toast('Could not create a code'); return; }
         save('sb_recovery_prompted', true);   // 코드를 본 적 있음 → 결제 후 프롬프트 생략
         let copied = false;
         try { await navigator.clipboard.writeText(code); copied = true; } catch (_) {}
         const el = $('recovery-code-val'); if (el) el.textContent = code;
-        alert((copied ? '복구 코드가 복사되었어요:\n\n' : '복구 코드:\n\n') + code +
-            '\n\n' + (message || '새 기기에서 이 코드로 복구할 수 있어요. 안전한 곳에 보관하세요!'));
-    } catch (e) { toast('코드 생성 실패'); }
+        alert((copied ? 'Recovery code copied:\n\n' : 'Recovery code:\n\n') + code +
+            '\n\n' + (message || 'Use this code to restore your account on a new device. Keep it somewhere safe!'));
+    } catch (e) { toast('Could not create a code'); }
 }
 
 // promptRecoveryCodeAfterPurchase — 첫 실결제 성공 직후 1회, 복구 코드를 발급해
@@ -1675,29 +1675,29 @@ async function promptRecoveryCodeAfterPurchase() {
     if (platform === 'web') return;                    // 웹은 데모 결제 — 대상 아님
     if (load('sb_recovery_prompted', false)) return;   // 기기당 1회 (코드를 이미 봤으면 생략)
     if (!lbAvailable || !fbFns) return;                // 오프라인이면 조용히 스킵 (설정 메뉴는 그대로)
-    await showRecoveryCode('기기를 바꿔도 구매를 되찾으려면 이 코드를 보관하세요!');
+    await showRecoveryCode('Save this code to keep your purchases if you switch devices!');
 }
 
 // recoverFromCode — 코드 입력 → 소스 계정 이전 (force 확인 플로우 포함).
 async function recoverFromCode() {
-    if (!lbAvailable || !fbFns) { toast('복구 기능을 사용할 수 없어요'); return; }
-    const code = window.prompt('복구 코드 입력 (SNB-XXXX-XXXX)', '');
+    if (!lbAvailable || !fbFns) { toast('Recovery is unavailable right now'); return; }
+    const code = window.prompt('Enter your recovery code (SNB-XXXX-XXXX)', '');
     if (!code) return;
     const run = async (force) => {
         try {
             const res = await fbFns.httpsCallable('recoverByCode')({ code, force });
             if (res?.data?.recovered) {
                 if (res.data.name) { state.name = res.data.name; save('sb_name', res.data.name); }
-                toast('복구 완료! 새로고침합니다…');
+                toast('Restored! Reloading…');
                 setTimeout(() => location.reload(), 1000);
             }
         } catch (e) {
             const c = (e?.code || ''), m = (e?.message || '');
             if (c.includes('already-exists')) {
-                if (confirm('이미 이 기기에 데이터가 있어요. 덮어쓰고 복구할까요?')) run(true);
-            } else if (c.includes('not-found')) toast('코드를 찾을 수 없어요');
-            else if (m.includes('SELF_RECOVERY')) toast('같은 계정의 코드예요');
-            else toast('복구에 실패했어요');
+                if (confirm('This device already has saved data. Overwrite it and restore?')) run(true);
+            } else if (c.includes('not-found')) toast('Code not found');
+            else if (m.includes('SELF_RECOVERY')) toast('That code already belongs to this account');
+            else toast('Restore failed');
         }
     };
     run(false);
@@ -1707,16 +1707,16 @@ async function recoverFromCode() {
 // Apple 5.1.1(v) / Play Data Safety "데이터 삭제" 경로. 파괴적이라 confirm 후에만.
 // 성공하면 로컬 캐시도 비우고 새로 시작한다.
 async function deleteMyData() {
-    if (!lbAvailable || !fbFns) { toast('지금은 삭제할 수 없어요'); return; }
-    if (!confirm('내 데이터(닉네임·점수·코인·젬)를 모두 삭제할까요?\n이 작업은 되돌릴 수 없어요.')) return;
+    if (!lbAvailable || !fbFns) { toast('Cannot delete right now'); return; }
+    if (!confirm('Delete all your data (nickname, scores, coins, gems)?\nThis cannot be undone.')) return;
     try {
         const uid = await getUid();
-        if (!uid) { toast('지금은 삭제할 수 없어요'); return; }
+        if (!uid) { toast('Cannot delete right now'); return; }
         await fbFns.httpsCallable('deleteMyData')();
         try { LS.clear(); } catch (_) {}
-        toast('삭제되었어요. 새로고침합니다…');
+        toast('Deleted. Reloading…');
         setTimeout(() => location.reload(), 1000);
-    } catch (e) { toast('삭제에 실패했어요 — 잠시 후 다시 시도해주세요'); }
+    } catch (e) { toast('Delete failed — please try again later'); }
 }
 
 // startRun — 게임 시작 시 세션 발급 (fire-and-forget, 에러 무시).
@@ -2023,10 +2023,10 @@ async function fetchLeaderboard(n = 50) {
 
 // setPlayerName — 닉네임 설정/변경. 성공 시 state.name 저장, 정리된 이름 반환.
 async function setPlayerName(name) {
-    if (!lbAvailable || !fbFns) { toast('리더보드를 사용할 수 없어요'); return null; }
+    if (!lbAvailable || !fbFns) { toast('Leaderboard unavailable'); return null; }
     try {
         const uid = await getUid();
-        if (!uid) { toast('리더보드를 사용할 수 없어요'); return null; }
+        if (!uid) { toast('Leaderboard unavailable'); return null; }
         const res = await fbFns.httpsCallable('setName')({ name });
         const clean = res?.data?.name;
         if (clean) {
@@ -2035,8 +2035,12 @@ async function setPlayerName(name) {
         }
         return null;
     } catch (e) {
-        // 함수가 보낸 검증 메시지(1~16자/금지어 등)를 토스트로 노출.
-        toast(e?.message || '이름을 저장할 수 없어요');
+        // Map the error code locally instead of echoing e.message — the Cloud Function's
+        // validation messages are Korean, and this is an English-language build.
+        const c = (e && e.code) || '';
+        toast(c.includes('invalid-argument') ? 'That nickname can’t be used'
+            : c.includes('resource-exhausted') ? 'Too many changes — try again later'
+            : 'Could not save your name');
         return null;
     }
 }
@@ -2049,19 +2053,19 @@ function renderLeaderboardName() {
     if (state.name) {
         const row = document.createElement('div');
         row.className = 'lb-you';
-        row.innerHTML = `<span>나: ${escapeHtml(state.name)}</span><span class="lb-edit">변경</span>`;
+        row.innerHTML = `<span>You: ${escapeHtml(state.name)}</span><span class="lb-edit">Edit</span>`;
         row.querySelector('.lb-edit').onclick = () => promptName();
         head.appendChild(row);
     } else {
         const row = document.createElement('div');
         row.className = 'lb-name-row';
-        row.innerHTML = `<input id="lb-name-input" maxlength="16" placeholder="닉네임 입력 (1~16자)"><button id="lb-name-save">저장</button>`;
+        row.innerHTML = `<input id="lb-name-input" maxlength="16" placeholder="Nickname (1-16 characters)"><button id="lb-name-save">Save</button>`;
         head.appendChild(row);
         row.querySelector('#lb-name-save').onclick = async () => {
             const val = (row.querySelector('#lb-name-input').value || '').trim();
-            if (!val) { toast('닉네임을 입력하세요'); return; }
+            if (!val) { toast('Enter a nickname'); return; }
             const clean = await setPlayerName(val);
-            if (clean) { toast('닉네임 설정 완료!'); renderLeaderboardName(); renderSettings(); }
+            if (clean) { toast('Nickname saved!'); renderLeaderboardName(); renderSettings(); }
         };
     }
 }
@@ -2084,13 +2088,13 @@ async function renderLeaderboard() {
     renderLeaderboardName();
     const body = $('leaderboard-body'); if (!body) return;
     if (!lbAvailable) {
-        body.innerHTML = `<div class="lb-state">리더보드를 불러올 수 없어요 — 잠시 후 다시</div>`;
+        body.innerHTML = `<div class="lb-state">Couldn't load the leaderboard - try again shortly</div>`;
         return;
     }
-    body.innerHTML = `<div class="lb-state">불러오는 중…</div>`;
+    body.innerHTML = `<div class="lb-state">Loading…</div>`;
     const list = await fetchLeaderboard(50);
     if (!list.length) {
-        body.innerHTML = `<div class="lb-state">아직 기록이 없어요 — 첫 주인공이 되어보세요!<br><span style="font-size:12px;opacity:0.7">(또는 잠시 후 다시 시도)</span></div>`;
+        body.innerHTML = `<div class="lb-state">No scores yet - be the first!<br><span style="font-size:12px;opacity:0.7">(or try again in a moment)</span></div>`;
         return;
     }
     let html = '<div class="lb-list">';
@@ -2103,7 +2107,7 @@ async function renderLeaderboard() {
     // 내 기록이 top50 밖이면 별도로 핀 고정.
     if (!meInTop && myStanding && Number.isFinite(myStanding.rank)) {
         html += `</div><div class="lb-pinned-divider">⋯</div><div class="lb-list">`;
-        html += lbRowHtml(myStanding.rank, state.name || '나', myStanding.best, true);
+        html += lbRowHtml(myStanding.rank, state.name || 'You', myStanding.best, true);
     }
     html += '</div>';
     body.innerHTML = html;
@@ -2133,12 +2137,12 @@ function renderNativeLeaderboardButton() {
 // 인라인 prompt 로 닉네임 변경 (설정/리더보드 공용).
 async function promptName() {
     const cur = state.name || '';
-    const val = window.prompt('닉네임 (1~16자)', cur);
+    const val = window.prompt('Nickname (1-16 characters)', cur);
     if (val === null) return;
     const trimmed = val.trim();
-    if (!trimmed) { toast('닉네임을 입력하세요'); return; }
+    if (!trimmed) { toast('Enter a nickname'); return; }
     const clean = await setPlayerName(trimmed);
-    if (clean) { toast('닉네임 설정 완료!'); renderSettings(); renderLeaderboardName(); }
+    if (clean) { toast('Nickname saved!'); renderSettings(); renderLeaderboardName(); }
 }
 
 // ============================================================
@@ -2336,7 +2340,7 @@ async function xpromoOnResume() {
                     // 서버 권위 잔액 반영(로컬 addCoins 아님). up-only 로 미동기화 획득 보호.
                     applyServerBalance({ coins: result.coins }, { upOnly: true });
                     vibrate('success');
-                    toast('🎉 설치 보상 +' + result.reward + ' 🪙');
+                    toast('🎉 Install reward +' + result.reward + ' 🪙');
                 }
                 renderXpromoGames();
             } else if (result.alreadyClaimed || result.notEligible) {

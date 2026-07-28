@@ -220,14 +220,14 @@ struct WebView: UIViewRepresentable {
             overlay.backgroundColor = UIColor(red: 0.04, green: 0.04, blue: 0.10, alpha: 1)
 
             let label = UILabel()
-            label.text = "연결할 수 없어요"
+            label.text = "Can't connect"
             label.textColor = .white
             label.font = .boldSystemFont(ofSize: 20)
             label.textAlignment = .center
             label.translatesAutoresizingMaskIntoConstraints = false
 
             var config = UIButton.Configuration.filled()
-            config.title = "다시 시도"
+            config.title = "Retry"
             config.baseBackgroundColor = UIColor(red: 0.39, green: 0.97, blue: 0.81, alpha: 1)
             config.baseForegroundColor = UIColor(red: 0.04, green: 0.04, blue: 0.10, alpha: 1)
             config.background.cornerRadius = 12
@@ -266,14 +266,14 @@ struct WebView: UIViewRepresentable {
         func webView(_ webView: WKWebView, runJavaScriptAlertPanelWithMessage message: String, initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping () -> Void) {
             guard let rootVC = getRootViewController() else { completionHandler(); return }
             let alert = UIAlertController(title: nil, message: message, preferredStyle: .alert)
-            alert.addAction(UIAlertAction(title: "확인", style: .default) { _ in completionHandler() })
+            alert.addAction(UIAlertAction(title: "OK", style: .default) { _ in completionHandler() })
             rootVC.present(alert, animated: true)
         }
         func webView(_ webView: WKWebView, runJavaScriptConfirmPanelWithMessage message: String, initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping (Bool) -> Void) {
             guard let rootVC = getRootViewController() else { completionHandler(true); return }
             let alert = UIAlertController(title: nil, message: message, preferredStyle: .alert)
-            alert.addAction(UIAlertAction(title: "취소", style: .cancel) { _ in completionHandler(false) })
-            alert.addAction(UIAlertAction(title: "확인", style: .default) { _ in completionHandler(true) })
+            alert.addAction(UIAlertAction(title: "Cancel", style: .cancel) { _ in completionHandler(false) })
+            alert.addAction(UIAlertAction(title: "OK", style: .default) { _ in completionHandler(true) })
             rootVC.present(alert, animated: true)
         }
 
@@ -283,8 +283,8 @@ struct WebView: UIViewRepresentable {
             guard let rootVC = getRootViewController() else { completionHandler(defaultText); return }
             let alert = UIAlertController(title: nil, message: prompt, preferredStyle: .alert)
             alert.addTextField { tf in tf.text = defaultText }
-            alert.addAction(UIAlertAction(title: "취소", style: .cancel) { _ in completionHandler(nil) })
-            alert.addAction(UIAlertAction(title: "확인", style: .default) { _ in
+            alert.addAction(UIAlertAction(title: "Cancel", style: .cancel) { _ in completionHandler(nil) })
+            alert.addAction(UIAlertAction(title: "OK", style: .default) { _ in
                 completionHandler(alert.textFields?.first?.text)
             })
             rootVC.present(alert, animated: true)
