@@ -71,6 +71,11 @@ function normalize(input, fold) {
   // (이전 코드는 NFC + "허용 범위 밖 제거" 라서 이 변형들이 전부 빈 문자열이 되어
   //  통과했다 — 전각은 한국어/일본어 IME 에서 한 키다.)
   let s = input.normalize("NFKC").toLowerCase();
+  // 보이지 않는 채움/폭0 문자 제거. NFKC 가 U+3164(ㅤ)·U+FFA0 를 U+1160 으로 접는데,
+  // U+1160 은 허용범위(ᄀ-ᇿ)라 아래 스트립을 통과한다 → '시ㅤ발' 이 '시ᅠ발' 로 남아
+  // 금칙어를 비껴갔다. (구 NFC 경로는 U+3164 를 범위 밖으로 보고 지워 오히려 막고 있었다.)
+  // 눈에 보이지 않으므로 지워서 얻는 오탐은 없다.
+  s = s.replace(/[ᅟᅠㅤﾠ​-‍⁠﻿]/g, "");
   if (fold) s = foldHomoglyphs(s);
   // 허용 문자 범위: 라틴, 한글(완성형+호환자모+자모), 일어, 한자만 남김
   s = s.replace(/[^\x00-\x7F가-힣ᄀ-ᇿㄱ-ㅎㅏ-ㅣぁ-んァ-ヶ一-龥]/g, "");
@@ -107,7 +112,31 @@ function checkBlocklist(name) {
   // 동형이의 문자를 접은 형태도 함께 검사한다. 접은 결과를 normalize() 안에 넣지 않는
   // 이유: 정상 키릴/그리스 이름이 라틴으로 뭉개져 엉뚱하게 걸리는 걸 막기 위해서다.
   // 여기서는 "둘 중 하나라도 금칙어면 차단" 이라 정상 이름은 원본 판정으로 통과한다.
-  const candidates = new Set([normalized, normalize(name, true)]);
+  const candidates = new Set([normalized]);
+  // 동형이의 접기는 **위장 증거가 있을 때만** 후보로 쓴다. 무조건 접으면 정상 키릴 이름이
+  // 대량 오탐된다: HOMOGLYPH_MAP 에 없는 글자(л·ч·ж·г…)는 범위 스트립에서 삭제되면서
+  // 남은 조각들이 붙어버려, 러시아어 중성형 어미 '-ное'(н→h, о→o, е→e)가 통째로 'hoe' 가
+  // 된다 → красное·личное·мороженое·ночное 가 전부 차단됐다(2026-07-28 회귀).
+  const folded = normalize(name, true);
+  if (folded) {
+    const nfkc = String(name).normalize("NFKC").toLowerCase();
+    const cyrGreek = nfkc.match(/[Ѐ-ӿͰ-Ͽ]/g) || [];
+    // (1) 매핑 안 된 키릴/그리스 글자가 하나라도 있으면 접은 결과는 인접성이 조작된
+    //     가짜 문자열이므로 버린다.
+    const allMapped = cyrGreek.length > 0 && cyrGreek.every((c) => HOMOGLYPH_MAP[c]);
+    if (allMapped) {
+      const hasLatin = /[a-z]/.test(nfkc);
+      if (hasLatin) {
+        // (2a) 라틴 + 동형이의 혼용 = 위장의 실제 시그니처(ѕhit, fuсk). 부분일치 허용.
+        candidates.add(folded);
+      } else {
+        // (2b) 전부 비라틴이면 부분일치는 오탐이 크다 → 완전일치일 때만 차단.
+        for (const word of HARD_SET) {
+          if (folded === word) return { blocked: true };
+        }
+      }
+    }
+  }
   for (const cand of candidates) {
     if (!cand) continue;
     for (const word of HARD_SET) {

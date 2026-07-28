@@ -626,7 +626,12 @@ async function claimMission(uid, missionId) {
       { coins: reward.coins || 0, gems: reward.gems || 0 },
       { reason: "mission", source: missionId });
 
-    tx.set(userRef, { missions }, { merge: true });
+    // mergeFields 로 missions 필드를 **통째로 교체**한다. merge:true 는 중첩 맵을 키 단위로
+    // 깊은 병합해서, 날짜가 바뀌어 위에서 claimed 를 {} 로 새로 만들어도 저장 시 과거 키가
+    // 전부 되살아난다 → claimed 가 영원히 누적. 그래서 하루 첫 청구만 통과하고 나머지는
+    // (구코드) ALREADY_CLAIMED / (현재) MISSION_LIMIT_REACHED 로 거부돼, 복귀 유저는 데일리
+    // 미션 3개 중 1개만 받고 있었다. daily/powerups 는 매번 전체 키를 쓰므로 영향 없음.
+    tx.set(userRef, { missions }, { mergeFields: ["missions"] });
     return { coins: bal.coins, gems: bal.gems, missions };
   });
 }

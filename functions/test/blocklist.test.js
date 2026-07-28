@@ -24,7 +24,16 @@ const MUST_BLOCK = [
   ["mixed cyrillic/latin", "ѕhit"],
   ["korean", "시발"],
   ["fullwidth shit", "ｓｈｉｔ"],
+  // 보이지 않는 채움 문자. NFKC 가 U+3164/U+FFA0 를 U+1160 으로 접고 U+1160 은
+  // 허용범위라 스트립을 통과한다 — normalize() 에서 명시적으로 지운다.
+  ["hangul filler infix", "시ㅤ발"],
+  ["zero-width space infix", "시​발"],
 ];
+
+// ⚠️ 알려진 한계(오늘 이전부터 존재, 의도적으로 미해결):
+// 눈에 보이는 문자를 끼워 넣는 회피는 막지 못한다 — '시1발', '시a발', 'fuick' 은
+// 이 변경 전에도 통과했다(부분일치 방식의 구조적 한계). 이걸 막으려면 퍼지 매칭이
+// 필요한데, 정상 닉네임 오탐 위험이 커서 출시 전 작업으로는 부적절하다.
 
 const MUST_ALLOW = [
   ["latin", "Snake"],
@@ -36,6 +45,16 @@ const MUST_ALLOW = [
   ["han", "小球"],
   ["fullwidth benign", "Ｓｎａｋｅ"],
   ["greek letters", "αβγ"],
+  // 동형이의 접기 회귀 방지. 접기를 무조건 적용하면 매핑 안 된 글자(л·ч·ж·г)가 삭제되며
+  // 조각이 붙어 러시아어 '-ное' 어미가 통째로 'hoe' 가 된다 → 아래가 전부 차단됐었다.
+  ["russian -ное", "красное"],
+  ["russian -ное (folds to 'hoe')", "личное"],
+  ["russian -ное", "мороженое"],
+  ["russian -ное", "ночное"],
+  ["serbian", "Човјек"],
+  ["greek word", "τιτλος"],
+  ["russian with ё", "Пётр"],
+  ["greek word 2", "Ελλάδα"],
 ];
 
 test("blocked names stay blocked across unicode variants", () => {
