@@ -31,6 +31,35 @@ Firestore 룰, IAP SKU 정합성, 시크릿·함수 배포 상태, 백필 상태
 미기재: **법인명 · 시행일 · 환불/청약철회 정책 · 아동 개인정보(연령등급) · 책임한계/준거법 · AdMob 데이터 공시 · 보관기간**.
 → Apple/Google 심사 게이트. 한국 전자상거래법/개인정보보호법 이슈도 동반.
 
+### 🔴 B4. 배포된 Firestore 룰이 구버전 — 라이브 경제 익스플로잇 (발견 2026-07-28)
+
+프로덕션 룰셋 = `d40b0022-adcb-41c2-b6c1-534ce78d4deb`, createTime **2026-06-25**.
+리포의 하드닝(커밋 `a19b397`, 2026-06-29)은 **한 번도 배포되지 않았다** — 그동안의 배포가
+전부 `--only functions` 또는 `--only hosting` 이었고 `deploy:rules` 스크립트도 없었다.
+
+배포된 룰의 `users/{uid}` 화이트리스트: `['name','bestScore','stableId','createdAt','lastSeenAt']`.
+**Rules Test API 실측(읽기 전용 시뮬레이션)** — 익명 인증 클라가 자기 uid 문서에:
+
+| 공격 | 배포된 룰 | 결과 |
+|---|---|---|
+| `create {bestScore:0}` | **ALLOWED** | `legacyNoCreatedAt` 성립 → `importEligible` |
+| `create {createdAt:<과거>}` | **ALLOWED** | `preCutoff` 성립 → `importEligible` |
+| `create {name:'<욕설>'}` | **ALLOWED** | blocklist 우회 → `submitScore` 가 공개 리더보드로 전파 |
+
+→ ① **신규 익명 계정이 `import_cap` 까지 코인 30,000 + 젬 120 + 스킨을 무료 수령**
+(`coinSystem.js:363-364`, `import_cap_coins` 30000 = 최상위 SKU `coins.30000` 와 동일).
+계정은 무제한 생성 가능(익명 인증). ② 욕설 닉네임이 글로벌 #1 로 노출 — `firestore.rules`
+주석이 명시적으로 막으려던 스토어 리젝 시나리오.
+
+**수정**: `users/{uid}` 를 `allow write: if false` 로 전면 차단(읽기는 유지). 안전 근거 —
+클라이언트는 이 컬렉션에 write 를 **한 번도 하지 않는다**(`index.html` 의 `fbDb` 사용처는
+`settings()` 설정과 `leaderboard_global` 읽기뿐). 모든 필드는 Cloud Functions 의 Admin SDK 가
+쓰며 Admin SDK 는 룰을 우회한다. 리포 룰(3필드 화이트리스트)만 배포하면 `createdAt` 경로가
+남으므로 **전면 차단이 맞다**. 시뮬레이션 결과 3개 공격 전부 DENIED, 정상 읽기 2건 ALLOWED.
+
+**배포**: `firebase deploy --only firestore:rules` — 프로덕션 보안 설정 변경이라 오너 승인 필요.
+재발 방지로 `package.json` 에 `deploy:rules` 추가 + `deploy:web` 에 체이닝 권장.
+
 ### B3. Android 릴리스 서명 미구성 (조용한 폴백 = 함정)
 `Mobile/Android/keystore.properties` 없음. `build.gradle.kts` 가 keystore 부재 시 **debug 서명으로 조용히 폴백**.
 → `./gradlew bundleRelease` 가 성공한 것처럼 보이지만 Play 업로드에서 거부. 빌드 시점에 안 터지므로 놓치기 쉬움.
@@ -94,7 +123,11 @@ CDN 버전을 올릴 경우 ES Module 로 전환 필요.
 - 웹 플랫폼 IAP **숨김**(`iapPurchasable` → web false) — 공개 URL 무료코인 노출 없음.
 
 **보안 / 룰**
-- Firestore 룰: `name`/`bestScore` 클라 쓰기 **차단**(욕설 닉네임 리더보드 우회 방지), 세션/원장/config 전면 차단, users 화이트리스트 3필드.
+- ~~Firestore 룰: `name`/`bestScore` 클라 쓰기 차단~~ → **🔴 오검증. 정정(2026-07-28)**: 이 항목은
+  **리포의 `firestore.rules` 파일만 보고 통과 처리**했으나, **프로덕션에 배포된 룰은 2026-06-25 자
+  구버전**(`d40b0022-adcb-41c2-b6c1-534ce78d4deb`)이라 `name`·`bestScore` 클라 쓰기가 **열려 있었다**.
+  2026-06-29 하드닝 커밋(`a19b397`)이 배포된 적이 없음(`--only functions`/`hosting` 만 배포해 옴).
+  → 아래 **B4** 참조. 세션/원장/config 전면 차단은 사실이며 유효.
 - 호스팅 보안 헤더(nosniff·X-Frame-Options·Referrer-Policy·Permissions-Policy) + 진입문서 `no-cache`.
 - 클라 하드코딩 시크릿 없음(Firebase apiKey 는 공개 설정 — 정상).
 

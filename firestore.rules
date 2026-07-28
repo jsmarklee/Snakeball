@@ -34,20 +34,20 @@ service cloud.firestore {
     match /users/{uid} {
       allow read: if request.auth != null && request.auth.uid == uid;
 
-      allow create: if request.auth != null
-        && request.auth.uid == uid
-        && request.resource.data.keys().hasOnly([
-          'stableId', 'createdAt', 'lastSeenAt'
-        ]);
-
-      allow update: if request.auth != null
-        && request.auth.uid == uid
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-          'stableId', 'createdAt', 'lastSeenAt'
-        ]);
-
-      // 삭제 차단.
-      allow delete: if false;
+      // 클라이언트 쓰기 전면 차단. 이 문서의 모든 필드는 Cloud Functions(Admin SDK)가
+      // 쓰고, Admin SDK 는 룰을 우회하므로 서버 동작에는 영향이 없다. 클라는 이 컬렉션에
+      // write 를 한 번도 하지 않는다(index.html 의 fbDb 사용처 = settings() 설정 +
+      // leaderboard_global 읽기뿐).
+      //
+      // 화이트리스트를 아예 없앤 이유 — 남겨두면 어떤 필드든 경제로 새기 때문:
+      //  - createdAt : 클라가 과거 시각을 쓰면 coinSystem.js 의 preCutoff 가 성립.
+      //  - bestScore : 클라가 쓰면 createdAt 없이도 legacyNoCreatedAt 이 성립.
+      //    둘 중 하나만 통과해도 importEligible → 신규 계정이 import_cap 까지
+      //    (코인 30,000 + 젬 120 + 스킨) 무료로 받는다 = coins.30000 SKU 를 공짜로.
+      //  - name : setName 의 blocklist/길이 모더레이션을 우회해 submitScore 를 타고
+      //    공개 리더보드로 전파된다(욕설 글로벌 #1 → 스토어 리젝).
+      //  - stableId : 타인의 기기 식별자를 선점해 복구 경로를 오염시킬 수 있다.
+      allow write: if false;
     }
   }
 }
