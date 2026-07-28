@@ -20,9 +20,14 @@ const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
 // localStorage 잔액 임포트 대상. 컷오프 이후 생성 doc(신규/치터가 새로 판 uid)은
 // 서버 잔액만 신뢰 → 신규 uid 에 sb_coins 를 seed 해서 임포트로 무료 코인 받는
 // 파세트(FC2/C2) 차단.
-// ★★ 배포 직전 갱신 필수 ★★ 이 값을 "실제 배포 시각"으로 맞춰라. 값이 실제 배포보다
-//   앞서면(=너무 이른 시각) 배포 지연 사이에 처음 접속한 기존 유저의 createdAt 이
-//   컷오프보다 뒤가 되어 localStorage 잔액 임포트 대상에서 빠진다(잔액 증발).
+// ⛔ 이 값을 갱신하지 마라 — 마이그레이션은 2026-07 에 이미 끝났다.
+//   (확인법: `node functions/scripts/backfill-createdAt.js` → economy_initialized 를
+//    가진 doc 이 있어 실행을 거부한다 = 신규 코드가 이미 라이브.)
+//   지금 "현재 시각"으로 올리면 컷오프 이후 생성된 모든 계정이 preCutoff 로 오인돼
+//   localStorage-seed 임포트 파세트(FC2/C2)가 다시 열린다.
+//   아래 원문은 최초 마이그레이션 배포 때의 지시이며, 그 1회에만 해당한다:
+//     "배포 직전 갱신 필수 — 값이 실제 배포보다 앞서면 배포 지연 사이에 처음 접속한
+//      기존 유저의 createdAt 이 컷오프보다 뒤가 되어 임포트 대상에서 빠진다(잔액 증발)."
 const MIGRATION_CUTOFF_MS = Date.parse("2026-07-11T00:00:00Z");
 
 /** Firestore Timestamp | epoch ms | ISO 문자열 → epoch ms (없으면 null). */

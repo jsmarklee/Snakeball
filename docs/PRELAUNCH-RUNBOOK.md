@@ -9,7 +9,20 @@
 
 ---
 
-## 0. 🔴 배포 게이트 순서 (functions 배포 — 반드시 이 순서)
+## 0. ✅ 배포 게이트 순서 — **이미 완료됨 (2026-07). 다시 실행하지 말 것.**
+
+> 아래 1~5 는 **서버권위 경제의 최초 배포 1회**를 위한 절차였고, 그 배포는 끝났다.
+> 확인법: `node functions/scripts/backfill-createdAt.js` 가
+> `✋ REFUSING: a users doc already has economy_initialized` 로 거부한다.
+>
+> **이후의 functions 재배포에서는 `MIGRATION_CUTOFF_MS` 를 절대 갱신하지 마라.**
+> 지금 "현재 시각"으로 올리면 2026-07-11 이후 생성된 모든 계정이 preCutoff 로 오인돼
+> localStorage-seed 임포트 파세트가 다시 열린다. 재배포는 그냥
+> `firebase deploy --only functions` 만 하면 된다.
+>
+> <details><summary>최초 마이그레이션 절차 (역사 기록용 — 실행 금지)</summary>
+
+### (완료됨) 원래의 배포 게이트 순서
 
 기존 라이브 웹 유저(snakeball-game.web.app) 잔액/스킨을 첫 접속에 0으로 초기화하지 않기
 위한 순서. **1→5를 분 단위로 좁혀서** 한 번에 진행.
@@ -33,6 +46,11 @@
   `firebase-admin` 은 `functions/node_modules` 에서 resolve → 리포 루트에서 위 명령 실행.
 - ⚠️ **functions 배포는 아래 §2 시크릿 8개 설정 후에만** 성공(IAP 검증 함수가 시크릿 바인딩).
 - LessonLearned 45 §5 "결제 심사 중 배포 금지" — App Review 진행 중엔 functions 배포 미루기.
+
+> </details>
+>
+> **지금 유효한 규칙**: 결제 심사 중에는 functions 배포를 미룰 것(LessonLearned 45 §5).
+> 그 외에는 `firebase deploy --only functions` 만. 컷오프는 건드리지 않는다.
 
 ---
 
