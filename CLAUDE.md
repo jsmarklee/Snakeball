@@ -95,8 +95,9 @@ success — the game treats it as "not rewarded" and continues gracefully.
   cost escalates 5→10→15), and **Double coins** on the result screen. Capped at
   `MAX_REVIVES` per run.
 - **IAP** (`STORE` in script #1; SKUs must match the native store + any server
-  verification): `coins.5000/coins.30000`, `gems.small/gems.big`, `remove.ads`
-  (non-consumable), `starter.pack` (best value, non-consumable bundle).
+  verification): `coins.5000`, `coins.30000`, `gems.small`, `gems.big` — **4 consumables, all of
+  them**. (There is no `remove.ads` or `starter.pack`; those were dropped. Anything
+  claiming otherwise is stale.)
 - **Coin sinks**: 8 ball **skins** (coins + premium gem skins incl. animated
   Rainbow) and consumable **power-ups** (Head Start +8 balls, Coin Magnet, Shield).
 - **Retention**: 7-day **daily reward** streak (auto-pops for returning players) and

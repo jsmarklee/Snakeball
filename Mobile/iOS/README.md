@@ -51,19 +51,25 @@ xcodebuild build -project Snakeball.xcodeproj -scheme Snakeball \
 2. **AdMob real IDs** (currently Google TEST ids):
    - `Info.plist` → `GADApplicationIdentifier`
    - `WebView.swift` → `RewardedAdManager.adUnitId` and `InterstitialAdManager.adUnitId`
-3. **App Store Connect IAP**: create these products (ids must match exactly):
-   `coins.5000`, `coins.30000`, `gems.small`, `gems.big` (Consumable);
-   `remove.ads`, `starter.pack` (Non-Consumable). For local simulator testing,
-   attach `Snakeball.storekit` in the scheme: Edit Scheme → Run → Options →
-   StoreKit Configuration.
+3. **App Store Connect IAP**: create exactly these four, all **Consumable** (ids must
+   match character for character): `coins.5000`, `coins.30000`, `gems.small`,
+   `gems.big`. Do **not** create `remove.ads` or `starter.pack` — they exist in
+   neither the client STORE nor the server PRODUCTS map, so a purchase of one could
+   never be fulfilled. For local simulator testing, attach `Snakeball.storekit` in the
+   scheme: Edit Scheme → Run → Options → StoreKit Configuration.
 4. **Signing**: open the project, select your Team (Automatic signing). Bundle id is
    `studio.hodgepodge.snakeball`.
-5. **App icon**: drop a 1024×1024 into `Assets.xcassets/AppIcon.appiconset`.
-6. (Recommended) Add a real server-side receipt check before granting big IAPs.
-   v1 grants client-side on StoreKit success and finishes the transaction.
+5. **App icon**: done — `Assets.xcassets/AppIcon.appiconset/icon-1024.png`
+   (generated from `docs/icon-src.png`).
+6. **Server-side receipt verification: already shipped — do not "add" it.**
+   StoreKit success does NOT grant. The token goes to the web layer, which calls
+   `verifyAndFulfillPurchase`; only after the server verifies the receipt and writes
+   the grant does the client call `finishTransaction`. Anything that grants on
+   StoreKit success alone would be a regression.
 
 ## Notes
 - Portrait-only, full screen, status bar hidden, scroll/bounce disabled.
-- `remove.ads` (and the Starter Pack) disable the between-runs interstitial; rewarded
-  ads (revive, double coins) stay available since they are opt-in.
+- The store sells 4 consumables only: `coins.5000`, `coins.30000`, `gems.small`,
+  `gems.big`. There is no `remove.ads` or Starter Pack, and no interstitial —
+  rewarded ads (revive, double coins) are the only ad placements.
 - StoreKit 2 + `persistentSystemOverlays` require iOS 16+ (deployment target).

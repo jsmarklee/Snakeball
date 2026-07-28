@@ -70,8 +70,11 @@ the Snakeball web layer no longer calls them.
    `res/mipmap-*/ic_launcher*` and `res/drawable/ic_launcher_background.xml`.
 6. **Package name** is `studio.hodgepodge.snakeball` (applicationId) — must match the
    Play Console app and the AdMob/IAP product setup.
-7. (Recommended) Add server-side purchase verification before granting large IAPs.
-   v1 grants client-side on Billing success, then consumes the purchase.
+7. **Server-side purchase verification: already shipped — do not "add" it.**
+   Billing success does NOT grant. The purchase token goes to the web layer, which
+   calls `verifyAndFulfillPurchase`; the server verifies with Google Play and writes
+   the grant, and only then does the client consume. Consuming before the grant
+   would turn a dropped response into "paid, got nothing".
 
 ## Notes
 - Portrait-only, full screen, status bar hidden, edge-to-edge, hardware accelerated.
