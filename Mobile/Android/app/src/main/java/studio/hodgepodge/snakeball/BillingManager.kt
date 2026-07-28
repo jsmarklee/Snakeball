@@ -33,7 +33,11 @@ class BillingManager(
 
     private var billingClient: BillingClient = BillingClient.newBuilder(activity)
         .setListener(this)
-        .enablePendingPurchases()
+        // Billing v8 removed the no-arg enablePendingPurchases(). One-time products
+        // only — Snakeball sells consumables, so do NOT add enablePrepaidPlans().
+        .enablePendingPurchases(
+            PendingPurchasesParams.newBuilder().enableOneTimeProducts().build()
+        )
         .build()
 
     private var productDetailsList: List<ProductDetails> = emptyList()
@@ -82,9 +86,11 @@ class BillingManager(
                 .setProductList(productList)
                 .build()
 
-            billingClient.queryProductDetailsAsync(params) { billingResult, details ->
+            // v8 changed the callback's second arg from List<ProductDetails> to
+            // QueryProductDetailsResult; the list moved to .productDetailsList.
+            billingClient.queryProductDetailsAsync(params) { billingResult, queryResult ->
                 if (billingResult.responseCode == BillingClient.BillingResponseCode.OK) {
-                    productDetailsList = details
+                    productDetailsList = queryResult.productDetailsList
                 } else {
                     Log.e(TAG, "Failed to load products: ${billingResult.debugMessage}")
                 }

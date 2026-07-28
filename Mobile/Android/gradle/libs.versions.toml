@@ -6,7 +6,7 @@ junit = "4.13.2"
 junitVersion = "1.1.5"
 espressoCore = "3.5.1"
 activityCompose = "1.8.0"
-billing = "7.1.1"
+billing = "9.1.0"   # v8+ required by Play from 2026-08-31; 9.x uses the same APIs as 8.x here
 playServicesAds = "23.6.0"
 playGamesServicesV2 = "21.0.0"
 

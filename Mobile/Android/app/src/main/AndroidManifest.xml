@@ -21,8 +21,13 @@
         </intent>
     </queries>
 
+    <!-- android:appCategory="game" — Android 16 (API 36) ignores android:screenOrientation
+         on displays >=600dp unless the app declares itself a game. Snakeball is
+         portrait-only, so this is what keeps the lock working at targetSdk 36. Preferred
+         over PROPERTY_COMPAT_ALLOW_RESTRICTED_RESIZABILITY, which stops working at 37. -->
     <application
         android:allowBackup="true"
+        android:appCategory="game"
         android:usesCleartextTraffic="false"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
