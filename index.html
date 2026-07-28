@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Snakeball</title>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box;
@@ -66,16 +66,20 @@ canvas { display: block; width: 100%; height: 100%; }
     position: absolute; top: 0; left: 0; width: 100%; height: 100%;
     display: none; pointer-events: none;
 }
+/* In-game HUD is offset by the safe-area inset. Before viewport-fit=cover the insets
+   always resolved to 0 and iOS letterboxed ~11% of the screen; with cover they are
+   real, and without these offsets the score would sit under the Dynamic Island.
+   The 0px fallback keeps web/Android byte-identical to before. */
 #score-display {
-    position: absolute; top: 20px; left: 50%; transform: translateX(-50%);
+    position: absolute; top: calc(20px + env(safe-area-inset-top, 0px)); left: 50%; transform: translateX(-50%);
     color: #fff; font-size: 36px; font-weight: 700; text-shadow: 0 2px 10px rgba(0,0,0,0.5);
 }
 #ball-count {
-    position: absolute; top: 65px; left: 50%; transform: translateX(-50%);
+    position: absolute; top: calc(65px + env(safe-area-inset-top, 0px)); left: 50%; transform: translateX(-50%);
     color: #63f8cf; font-size: 20px; font-weight: 600;
 }
 #mega-timer-wrap {
-    position: absolute; top: 95px; left: 50%; transform: translateX(-50%);
+    position: absolute; top: calc(95px + env(safe-area-inset-top, 0px)); left: 50%; transform: translateX(-50%);
     width: 160px; height: 12px; background: rgba(255,255,255,0.2);
     border-radius: 6px; overflow: hidden; display: none;
     box-shadow: 0 0 10px rgba(255,170,0,0.5);
@@ -202,7 +206,7 @@ canvas { display: block; width: 100%; height: 100%; }
 
 /* In-game combo + currency */
 #combo-display {
-    position: absolute; top: 130px; left: 50%; transform: translateX(-50%);
+    position: absolute; top: calc(130px + env(safe-area-inset-top, 0px)); left: 50%; transform: translateX(-50%);
     color: var(--gold); font-size: 26px; font-weight: 900; text-align: center;
     text-shadow: 0 0 12px rgba(255,210,63,0.7); display: none; pointer-events: none;
 }
@@ -2203,7 +2207,12 @@ async function _xpEligibleGames() {
     const claimed = _xpClaimed();
     const candidates = (cfg.games || []).filter(g =>
         g && g.id && !XP_SELF_IDS.has(String(g.id).toLowerCase()) &&
-        g.platforms && g.platforms[platform]
+        g.platforms && g.platforms[platform] &&
+        // Drop unreleased entries whose store link is still a placeholder. games.json
+        // currently ships mineta with platforms.ios = ".../idREPLACE_WITH_MINETA_ID",
+        // which 404s — that card sits two taps from the home screen on iOS and its
+        // reward is unearnable anyway (the install check can never succeed).
+        !/REPLACE_WITH/i.test(String(g.platforms[platform]))
     ).map(g => ({
         ...g,
         link: g.platforms[platform],
@@ -2509,6 +2518,29 @@ window.SB = {
 })();
 </script>
 
+<!-- three.js load guard. The CDN tag above is render-blocking and has no onerror, and
+     the game module's first executable statement dereferences THREE — so on a CDN
+     failure that module throws, the tap handler never registers, and the player gets a
+     perfectly painted menu whose TAP TO PLAY silently does nothing (SHOP/RANK/DAILY keep
+     working, since they live in the other module, which makes it look even less broken).
+     A classic script runs in document order, i.e. after the CDN tag has resolved or
+     failed, so this is the last point where we can say something useful. Deliberately
+     NOT type="module" — modules are deferred and would run too late. -->
+<script>
+(function () {
+    if (typeof THREE !== 'undefined') return;
+    var sub = document.querySelector('#main-menu .subtitle');
+    if (sub) { sub.textContent = 'Could not load — check your connection'; sub.style.color = '#e87352'; }
+    var btn = document.getElementById('tap-to-play');
+    if (btn) {
+        btn.textContent = 'RETRY';
+        btn.addEventListener('click', function () { location.reload(); });
+    }
+    var pr = document.getElementById('powerup-row');   // needs the 3D scene; hide it
+    if (pr) pr.style.display = 'none';
+})();
+</script>
+
 <script type="module">
 
 // ============================================================
@@ -2590,7 +2622,11 @@ document.addEventListener('visibilitychange', () => {
     if (!audioCtx) return;
     if (document.hidden) {
         if (audioCtx.state === 'running') audioCtx.suspend();
-    } else if (soundEnabled && audioCtx.state === 'suspended') {
+    } else if (soundEnabled && gameState !== 'paused' && audioCtx.state === 'suspended') {
+        // Not while paused: pauseGame() suspends the context, but the BGM scheduler is
+        // still live, so resuming here on return-to-foreground played music over the
+        // pause overlay. (Gated here rather than calling bgmStart() from resumeGame(),
+        // which would reset bgm.step and restart the loop from bar 1 every resume.)
         audioCtx.resume();
     }
 });
@@ -2899,7 +2935,14 @@ ballCountSprite.scale.set(1.2, 0.6, 1);
 ballCountSprite.position.set(0.6, 0.6, 0);
 mainBallGroup.add(ballCountSprite);
 
+let _lastSpriteBallCount = -1;
 function updateBallCountSprite() {
+    // The canvas is a pure function of ballCount, but this runs every frame — each call
+    // re-uploaded a 128x64 texture and regenerated its mipmaps on the GPU for an
+    // unchanged number. Every ballCount mutation is followed by updateUI(), so a simple
+    // memo is safe.
+    if (ballCount === _lastSpriteBallCount) return;
+    _lastSpriteBallCount = ballCount;
     const ctx = ballCountCanvas.getContext('2d');
     ctx.clearRect(0, 0, 128, 64);
     ctx.fillStyle = '#ffffff';
@@ -4016,6 +4059,19 @@ function doRevive() {
     revivesUsed++;
     document.getElementById('revive-screen').style.display = 'none';
     pendingDeathHandled = false;
+    // Put the ball back on the road. moveBall gates ALL vertical physics on
+    // `if (!canJump)`, so reviving mid-air with canJump=true (set below) freezes the
+    // ball at its death altitude forever: gravity never re-applies, it sails over every
+    // cube and coin, and overhead bars — which only strike above y=0.9, so every
+    // overhead death is airborne by construction — keep eroding it. fastFall() can't
+    // rescue it either (it early-returns while canJump). Mirrors resetGameState().
+    mainBallGroup.position.y = BALL_GROUND_Y;
+    velocity.y = 0;
+    readyToBounceOnGround = true;
+    didJumpDuringCollision = false;
+    lastCube = null;
+    hittingCube = false;
+    hitStop = 0;              // a break+death in the same frame would otherwise carry over
     gameState = 'playing';
     gameUI.style.display = 'block';
     touchAreaEl.style.display = 'block';
@@ -4534,7 +4590,9 @@ function finalizeGameOver() {
     if (isBest) {
         bestScore = finalScore;
         localStorage.setItem('snakeball_best', bestScore.toString());
-        document.getElementById('new-best').style.display = '';
+        // 'block', not '' — the stylesheet sets #new-best{display:none}, so clearing the
+        // inline value just lets that rule win and the banner has never once rendered.
+        document.getElementById('new-best').style.display = 'block';
         playSound('highscore');
     } else {
         document.getElementById('new-best').style.display = 'none';
@@ -5060,7 +5118,11 @@ function update() {
     // Hit-stop: freeze the whole playing frame for a few ms on a solid smash. The last
     // rendered frame persists (we skip sim+render), giving the impact a crisp "hold".
     // getDelta() above already consumed this tick, so no dt spike when the freeze ends.
-    if (hitStop > 0 && gameState === 'playing') { hitStop -= dt; return; }
+    // Clear on any non-playing state rather than at each reset site: breaking a cube and
+    // dying in the same checkCollisions() pass leaves hitStop set, and it would otherwise
+    // survive revive/result/menu and freeze the first frames of the next run.
+    if (gameState !== 'playing') hitStop = 0;
+    else if (hitStop > 0) { hitStop -= dt; return; }
 
     if (gameState === 'playing' || gameState === 'tutorial') {
         // Tutorial logic
