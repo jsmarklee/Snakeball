@@ -17,6 +17,7 @@ const { getAuth } = require("firebase-admin/auth");
 const { checkBlocklist } = require("./blocklist");
 const { verifyAndFulfill } = require("./iapVerification");
 const coin = require("./coinSystem");
+const { deleteUserSessions } = require("./deleteSessions");
 
 initializeApp();
 const db = getFirestore();
@@ -105,10 +106,74 @@ function sanitizeName(raw) {
   return trimmed;
 }
 
+// ─── 런 텔레메트리 (game_sessions 기록용) ─────────────────────
+// ⚠️ 돈/점수 경로가 아니다. 여기 값은 리더보드 점수나 코인 지급 계산에 일절 쓰이지
+//    않고, 오직 game_sessions 문서에 "이 런이 실제로 어땠는지"를 남기는 분석용이다.
+//    startedAt/endedAt 으로 런의 "길이"는 이미 알 수 있었지만 "내용"(점수·큐브·볼)은
+//    어디에도 남지 않아 "이탈 전에 얼마나 진행했나"를 영원히 답할 수 없었다.
+// 조작된 숫자가 집계 평균을 망치지 않도록 상식적인 상한으로 클램프만 한다.
+// 상한을 넘겼다고 제출을 거부하지는 않는다 — 점수 자체는 이미 안티치트를 통과했고,
+// 텔레메트리 때문에 정상 플레이의 점수 등록이 막히면 안 된다.
+const RUN_STAT_CAPS = { cubes: 100000, megas: 1000, revives: 20, combo: 1000, balls: 100000, pickupCoins: 100000 };
+const RUN_END_REASONS = ["death", "quit"];
+
+/**
+ * sanitizeRunStats — 클라가 보고한 런 통계를 텔레메트리용으로 정리.
+ * 숫자가 아니거나 음수/NaN 이면 0, 상한 초과면 캡, 소수는 내림.
+ * 항상 모든 필드를 채운 객체를 반환한다 — 필드가 빠지면 나중에 집계 쿼리
+ * (예: run.cubes 로 정렬/필터)에서 그 문서가 통째로 사라지기 때문.
+ */
+function sanitizeRunStats(raw) {
+  const src = raw && typeof raw === "object" ? raw : {};
+  const clamp = (v, cap) => {
+    const n = Number(v);
+    if (!Number.isFinite(n) || n < 0) return 0;
+    return Math.min(Math.floor(n), cap);
+  };
+  return {
+    cubes: clamp(src.cubes, RUN_STAT_CAPS.cubes),
+    megas: clamp(src.megas, RUN_STAT_CAPS.megas),
+    revives: clamp(src.revives, RUN_STAT_CAPS.revives),
+    combo: clamp(src.combo, RUN_STAT_CAPS.combo),
+    balls: clamp(src.balls, RUN_STAT_CAPS.balls),
+    pickupCoins: clamp(src.pickupCoins, RUN_STAT_CAPS.pickupCoins),
+    endReason: RUN_END_REASONS.includes(src.endReason) ? src.endReason : "unknown",
+  };
+}
+
+/**
+ * 런 텔레메트리(platform/appVersion) 정리 — 클라 문자열을 문서에 그대로 쓰지 않기 위한 관문.
+ *
+ * 클라가 보낸 값을 검증 없이 game_sessions 문서에 넣으면 임의 길이·임의 내용의 문자열을
+ * 서버 문서에 심을 수 있게 된다(문서 비대화 + 집계/대시보드 오염). 그래서 여기서 좁힌다:
+ *   - platform  : 허용 목록에 없는 값은 전부 "unknown" (자유 문자열 금지)
+ *   - appVersion: 버전에 쓰이는 문자만 남기고 16자에서 컷
+ *
+ * sanitizeName 과 달리 **절대 throw 하지 않는다.** 텔레메트리는 부가정보일 뿐이고,
+ * 여기서 던지면 세션 발급이 실패해 게임이 리더보드 없이 돌게 된다. 이상값은 "unknown".
+ * 상수를 함수 안에 둔 이유: firebase-admin 부팅 없이 이 함수만 떼어내 단위검증할 수 있게.
+ */
+function sanitizeTelemetry(raw) {
+  const ALLOWED_PLATFORMS = ["ios", "android", "toss", "web"];
+  const APP_VERSION_MAX_LEN = 16;
+  const src = raw && typeof raw === "object" ? raw : {};
+  const platform = ALLOWED_PLATFORMS.includes(src.platform) ? src.platform : "unknown";
+  let appVersion = "unknown";
+  if (typeof src.appVersion === "string") {
+    const cleaned = src.appVersion
+      .trim()
+      .replace(/[^0-9A-Za-z._+-]/g, "")
+      .slice(0, APP_VERSION_MAX_LEN);
+    if (cleaned.length > 0) appVersion = cleaned;
+  }
+  return { platform, appVersion };
+}
+
 /**
  * startRun — 게임 시작 시 세션 발급 (안티치트 앵커).
- * game_sessions/{token} = { uid, startedAt, used:false } 생성.
- * 반환: { sessionToken }.
+ * 입력: { platform?, appVersion? } — 텔레메트리 전용(선택). 누락/이상값이면 "unknown".
+ * game_sessions/{token} = { uid, startedAt, used:false, platform, appVersion } 생성.
+ * 반환: { sessionToken }.  ← 반환 shape 은 계약이다. 절대 바꾸지 말 것.
  */
 exports.startRun = onCall({ region: REGION, minInstances: 0 }, async (request) => {
   if (!request.auth) {
@@ -116,12 +181,21 @@ exports.startRun = onCall({ region: REGION, minInstances: 0 }, async (request) =
   }
   const uid = request.auth.uid;
 
+  // 채널/버전 태깅 — iOS/Android/Toss/Web 4개 채널로 동시에 나가면, 사후에 "이 런이 어느
+  // 채널·어느 버전에서 나왔는지"를 복원할 방법이 없다(백필 불가). 붙일 수 있는 유일한
+  // 지점이 세션 발급 시점이라 여기서 기록한다. 클라 문자열은 신뢰하지 않는다.
+  const telemetry = sanitizeTelemetry(request.data);
+
   // 랜덤 토큰 = Firestore auto-id.
   const sessionRef = db.collection("game_sessions").doc();
   await sessionRef.set({
     uid,
     startedAt: FieldValue.serverTimestamp(),
     used: false,
+    // ↓ 순수 텔레메트리 필드. submitScore 의 안티치트 판정과 coinSystem 의 revive 카운터는
+    //   이 값을 절대 읽지 않는다(읽게 만들지도 말 것). 추가 전용 필드다.
+    platform: telemetry.platform,
+    appVersion: telemetry.appVersion,
   });
 
   return { sessionToken: sessionRef.id };
@@ -129,9 +203,10 @@ exports.startRun = onCall({ region: REGION, minInstances: 0 }, async (request) =
 
 /**
  * submitScore — 세션 검증 + 점수 등록.
- * 입력: { sessionToken, score, name? }
+ * 입력: { sessionToken, score, name?, pickupCoins?, runStats? }
  *  1) 세션 존재 / uid 일치 / used=false 확인 후 트랜잭션으로 used:true (리플레이 방지)
  *  2) 경과 시간 기반 점수 상한으로 안티치트
+ *  2-b) ⚠️ (2)를 통과한 뒤에만 game_sessions 에 런 텔레메트리(run.*) 기록
  *  3) 개인 최고점 초과 시 leaderboard_global + leaderboard_weekly_{YYYYWW} upsert,
  *     users/{uid}.bestScore 갱신
  *  4) 반환: { best, rank }
@@ -141,7 +216,8 @@ exports.submitScore = onCall({ region: REGION, minInstances: 0 }, async (request
     throw new HttpsError("unauthenticated", "인증이 필요합니다.");
   }
   const uid = request.auth.uid;
-  const { sessionToken, score, name, pickupCoins } = request.data || {};
+  // runStats 는 텔레메트리 전용(선택). 없으면(구버전 클라/오프라인 큐) 0으로 채워진다.
+  const { sessionToken, score, name, pickupCoins, runStats } = request.data || {};
 
   if (!sessionToken || typeof sessionToken !== "string") {
     throw new HttpsError("invalid-argument", "sessionToken이 필요합니다.");
@@ -195,6 +271,28 @@ exports.submitScore = onCall({ region: REGION, minInstances: 0 }, async (request
   if (score > maxAllowed) {
     // 세션은 이미 used 처리됨 — 조작 점수는 그냥 거부.
     throw new HttpsError("failed-precondition", "점수가 검증을 통과하지 못했습니다.");
+  }
+
+  // ── 2-b) 런 텔레메트리 기록 ──
+  // ⚠️⚠️ 순서 고정. 이 블록은 **반드시 위 (2) 상한 검증을 통과한 뒤**에 있어야 한다.
+  //     (1)의 세션 트랜잭션은 리플레이 방지를 위해 검증보다 **먼저** used:true 를 찍는다.
+  //     그래서 이 기록을 트랜잭션 안으로 옮기거나 (2) 위로 올리면, 검증에서 거부된
+  //     조작 점수까지 game_sessions 에 "정상 런"처럼 남아 분석 데이터가 영구히 오염된다.
+  //     위로 옮기지 말 것. 트랜잭션 안에 넣지 말 것.
+  // 기록만 하고 반환값은 쓰지 않는다. 실패해도 점수 등록/코인 지급을 막지 않는다
+  // (텔레메트리 < 게임 플로우). 세션은 이미 used 라 세션당 정확히 1회만 기록된다.
+  try {
+    const runStatsClean = sanitizeRunStats(Object.assign({}, runStats, { pickupCoins }));
+    await sessionRef.update({
+      // run.* = "안티치트를 통과한 런"만 담긴다. score 는 서버가 검증한 값 그대로.
+      // durationSec 는 startedAt/endedAt 으로도 구할 수 있지만, Firestore 가 파생값을
+      // 쿼리할 수 없어 정렬/필터용으로 미리 박아둔다.
+      // revives 는 클라 보고(광고+젬 합계)다 — 세션의 reviveCount 는 젬 부활만 세므로 상보적.
+      run: Object.assign({ score, durationSec: Math.round(elapsedSeconds) }, runStatsClean),
+      runRecordedAt: FieldValue.serverTimestamp(),
+    });
+  } catch (err) {
+    console.error("run telemetry write failed (score still recorded):", err);
   }
 
   // ── 3) 리더보드 / users 갱신 ──
@@ -651,7 +749,12 @@ exports.claimMission = onCall({ region: REGION }, async (request) => {
 //
 // 익명 auth라 법적 의무는 아니나, stableId(IDFV/ANDROID_ID)·닉네임·점수·잔액을
 // 서버에 저장하므로 리뷰어 재량/데이터 안전 라벨 일치를 위해 삭제 경로를 제공한다.
-// users/{uid} + 리더보드 문서(global + 이번 주 weekly)를 지우고 auth 계정을 삭제한다.
+// users/{uid} + 리더보드 문서(global + 이번 주 weekly) + 이 uid 의 game_sessions 를
+// 지우고 auth 계정을 삭제한다.
+// ⚠️ game_sessions 는 doc id 가 auto-id 라 uid 필드로 쿼리해서 지워야 하고, 배치 500
+//    상한 때문에 페이지 루프가 필요하다(deleteSessions.js). 이걸 빼먹으면
+//    static/privacy.html §5(Data retention) 과 양대 스토어 데이터 안전 신고("삭제 요청 시 30일 내
+//    제거")가 사실과 달라진다 — 2026-08 이전 버전의 실제 버그였다.
 // ⚠️ 과거 주차 weekly 문서와 processed_transactions(멱등 원장)는 남긴다 —
 //    전자는 컬렉션명이 주차별이라 일괄 조회가 비싸고, 후자는 영수증 재사용 방지에
 //    필요(개인식별정보 없음).
@@ -665,6 +768,23 @@ exports.deleteMyData = onCall({ region: REGION }, async (request) => {
   batch.delete(db.collection(`leaderboard_weekly_${isoWeekKeyKST()}`).doc(uid));
   await batch.commit();
 
+  // game_sessions 스윕 — 반드시 위 배치 커밋 "다음"에 돈다. 스윕이 실패해도 개인정보가
+  // 담긴 users/리더보드 문서는 이미 지워진 상태여야 하기 때문이다. 스윕 실패는 요청
+  // 전체를 실패시키지 않고 로그만 남긴다(헬퍼가 멱등이라 재실행해도 안전).
+  let sessions = { deleted: 0, truncated: false };
+  try {
+    sessions = await deleteUserSessions(db, uid);
+    if (sessions.truncated) {
+      // 상한(10,000건)에 걸린 극단 케이스. 곧 auth 계정이 지워져 같은 uid 로는 재호출이
+      // 불가능하니, 운영자가 콘솔에서 마무리할 수 있도록 uid 를 남긴다.
+      console.error(
+        `deleteMyData: game_sessions sweep truncated for uid=${uid} (deleted=${sessions.deleted}) — finish manually`
+      );
+    }
+  } catch (e) {
+    console.error("deleteMyData: game_sessions sweep failed:", e.message);
+  }
+
   // auth 계정 삭제 — 실패해도 데이터는 이미 지워졌으므로 성공으로 처리(로그만).
   try {
     await getAuth().deleteUser(uid);
@@ -672,7 +792,9 @@ exports.deleteMyData = onCall({ region: REGION }, async (request) => {
     console.error("deleteMyData: auth.deleteUser failed:", e.message);
   }
 
-  return { deleted: true };
+  // 반환 shape 는 하위호환 — index.html 의 deleteMyData() 는 deleted 만 보고 나머지
+  // 필드는 무시한다. 필드 추가만 했으므로 클라이언트 변경/재배포가 필요 없다.
+  return { deleted: true, sessionsDeleted: sessions.deleted };
 });
 
 // ─── IAP 영수증 검증 ──────────────────────────────────────────

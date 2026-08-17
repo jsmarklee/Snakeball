@@ -660,6 +660,14 @@ function iapPurchasable(id) {
     return true;
 }
 
+// 이 플랫폼에서 '젬'을 실제로 살 수 있는가 — 부활 화면의 "젬 부족 → 상점" 유도를 켤지
+// 판단하는 게이트. 살 수 없는 플랫폼(web / Toss SKU 미매핑)에서 상점으로 보내면
+// renderShop 이 "Store coming soon." 만 띄우는 막다른 길에 도착한다(죽은 동선).
+// 판정 기준은 renderShop 의 buyable 필터와 동일하게 iapPurchasable 하나로 맞춘다.
+function gemsPurchasable() {
+    return STORE.some(p => p.grant && p.grant.gems && iapPurchasable(p.id));
+}
+
 // ---------- Ads master switch (single source of truth) ----------
 // 광고 전역 on/off. AdMob 계정이 정지/심사 중이거나 실제 광고 ID가 아직 없으면 false로
 // 출시 → 보상형 광고 UI(부활/더블코인 ▶버튼)를 전부 숨기고 코인/젬 폴백만 노출한다.
@@ -686,6 +694,12 @@ const LS = window.localStorage;
 // 리셋하므로 클라도 KST로 맞춘다. UTC로 두면 09:00 KST 전후로 클라-서버 날짜가
 // 어긋나 "토스트는 뜨는데 서버는 ALREADY_CLAIMED 거부"하는 유령 클레임이 난다.
 const today = () => new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10); // YYYY-MM-DD (KST)
+// 어제 키 — 반드시 today() 에서 파생시킨다. +9h 오프셋을 세 번째 장소에 복사하면
+// 또 어긋난다. today() 결과(KST 날짜)를 UTC 자정으로 파싱해 하루 빼는 방식이라
+// 산술이 순수 UTC 라 DST/로컬 타임존 영향이 없고, 서버 kstDateKey(now-86400000) 과
+// 항상 같은 값이 나온다. (raw `Date.now() - 86400000` 을 쓰면 00:00~09:00 KST 구간에서
+// 그제 날짜가 나와 스트릭 판정이 하루 밀린다.)
+const yesterday = () => new Date(Date.parse(today() + 'T00:00:00Z') - 86400000).toISOString().slice(0, 10);
 function load(key, def) {
     try { const v = LS.getItem(key); return v === null ? def : JSON.parse(v); }
     catch (e) { return def; }
@@ -733,7 +747,11 @@ const MISSION_POOL = [
     { id:'mega3',   text:'Grab 3 mega balls',       type:'megas',        target:3,   reward:{gems:5} },
     { id:'combo15', text:'Land a 15x combo',        type:'bestCombo',    target:15,  reward:{coins:300} },
     { id:'balls40', text:'Reach 40 balls in a run', type:'bestBalls',    target:40,  reward:{coins:200} },
-    { id:'revive1', text:'Revive once',             type:'revives',      target:1,   reward:{coins:150} },
+    // needsAds — 보상형 광고가 꺼져 있으면(ADS_ENABLED=false / web / Toss adGroupId 미주입)
+    // 부활 수단이 젬뿐이라 신규 유저(젬 0)는 이 미션을 영영 0/1 로 둔 채 슬롯만 날린다.
+    // ensureMissions 가 로테이션 풀에서 제외한다. 정의 자체는 남겨야 어제 이미 뽑힌
+    // 진행중 미션의 missionDef 조회가 깨지지 않는다(다음 KST 리셋에 자연히 빠짐).
+    { id:'revive1', text:'Revive once',             type:'revives',      target:1,   reward:{coins:150}, needsAds:true },
 ];
 
 // 7-day login streak rewards
@@ -1234,7 +1252,8 @@ function consumeArmed() {
 // ---------- Missions ----------
 function ensureMissions() {
     if (!state.missions || state.missions.date !== today()) {
-        const pool = MISSION_POOL.slice();
+        // 달성 불가능한 미션은 로테이션에서 뺀다(needsAds 플래그). slice() → filter().
+        const pool = MISSION_POOL.filter(m => !m.needsAds || canShowRewardedAd());
         const picks = [];
         // deterministic-ish shuffle
         for (let i = 0; i < 3 && pool.length; i++) {
@@ -1302,8 +1321,7 @@ async function claimMission(id) {
 function dailyAvailable() { return state.daily.last !== today(); }
 async function claimDaily() {
     if (!dailyAvailable()) return;
-    const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
-    const streak = state.daily.last === yesterday ? Math.min(state.daily.streak + 1, 7) : 1;
+    const streak = state.daily.last === yesterday() ? Math.min(state.daily.streak + 1, 7) : 1;
     const reward = DAILY_REWARDS[(streak - 1) % 7];
     state.daily = { last: today(), streak };   // 낙관적 로컬(재청구 방지). 코인/젬은 서버 지급.
     vibrate('success');
@@ -1521,9 +1539,8 @@ function renderDaily() {
     grid.innerHTML = '';
     const claimedToday = !dailyAvailable();
     const curStreak = state.daily.streak || 0;
-    const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
     // Effective streak that the NEXT claim will award (mirrors claimDaily logic)
-    const nextStreak = state.daily.last === yesterday ? Math.min(curStreak + 1, 7) : 1;
+    const nextStreak = state.daily.last === yesterday() ? Math.min(curStreak + 1, 7) : 1;
     for (let i = 0; i < 7; i++) {
         const r = DAILY_REWARDS[i];
         const dayNum = i + 1;
@@ -1734,21 +1751,37 @@ async function startRun() {
     try {
         const uid = await getUid();
         if (!uid) return;
-        const res = await fbFns.httpsCallable('startRun')();
+        // 채널/버전 태깅 — 세션 발급 순간에만 붙일 수 있고 나중에 백필이 불가능하다.
+        // platform/APP_VERSION 은 이 스크립트 블록 상단(각각 detectPlatform 결과, const)
+        // 에 이미 있으므로 그대로 넘긴다. 서버가 allow-list + 길이컷으로 다시 검증한다.
+        const res = await fbFns.httpsCallable('startRun')({ platform, appVersion: APP_VERSION });
         sessionToken = res?.data?.sessionToken || null;
     } catch (e) { sessionToken = null; }
 }
 
 // submitScore — 1회성 토큰으로 점수 제출. 성공 시 myStanding 저장.
-async function submitScore(score, pickupCoins) {
+// runStats(선택) = 텔레메트리 전용 { cubes, megas, revives, combo, balls, endReason }.
+// 서버는 안티치트 상한 검증을 통과한 런만 game_sessions 에 기록한다(index.js 2-b).
+async function submitScore(score, pickupCoins, runStats) {
     if (!lbAvailable || !fbFns || !sessionToken || !Number.isFinite(score)) return;
     const token = sessionToken;
     sessionToken = null;        // 1회성 — 즉시 비워 중복 제출 방지
+    const rs = (runStats && typeof runStats === 'object') ? runStats : {};
+    const int0 = (v) => Number.isFinite(v) ? Math.max(0, Math.floor(v)) : 0;
     const payload = {
         sessionToken: token,
         score: Math.round(score),
         name: state.name || undefined,
         pickupCoins: Number.isFinite(pickupCoins) ? Math.max(0, Math.floor(pickupCoins)) : 0,
+        // 텔레메트리 — payload 통째로 오프라인 큐에 저장되므로 재전송(FC6) 때도 유지된다.
+        runStats: {
+            cubes: int0(rs.cubes),
+            megas: int0(rs.megas),
+            revives: int0(rs.revives),
+            combo: int0(rs.combo),
+            balls: int0(rs.balls),
+            endReason: rs.endReason === 'quit' ? 'quit' : 'death',
+        },
     };
     try {
         const res = await fbFns.httpsCallable('submitScore')(payload);
@@ -1799,8 +1832,31 @@ function applyServerBalance(resp, opts = {}) {
             state.powerups[id] = Math.min(local, server);
         }
     }
+    // 데일리/미션도 서버가 권위다. 여기서 반영하지 않으면 클라 localStorage 의 streak/claimed
+    // 이 서버와 어긋난 채로 영원히 남는다 — UI 는 "Day 7 보상"이라고 약속하는데 서버는 Day 1 을
+    // 지급하는 식(잔액 자체는 서버가 진실이라 화폐 손실은 없고, 표시만 거짓말한다).
+    let dailyStateTouched = false;
+    if (resp.daily && typeof resp.daily.last === 'string') {
+        state.daily = { last: resp.daily.last, streak: Number(resp.daily.streak) || 0 };
+        dailyStateTouched = true;
+    }
+    // 서버 missions 는 { date, claimed:{id:true} } 만 안다 — 어떤 3개를 뽑았는지도, progress 도
+    // 클라 전용이다. 그래서 응답이 "오늘자"이고 로컬 목록도 오늘자일 때만 claimed 플래그를
+    // 서버값으로 맞추고, list/progress 는 손대지 않는다. (날짜가 다르면 서로 다른 날 이야기라 무시.)
+    if (resp.missions && typeof resp.missions === 'object' && resp.missions.date === today()
+        && state.missions && state.missions.date === today() && Array.isArray(state.missions.list)) {
+        const claimedMap = resp.missions.claimed || {};
+        for (const entry of state.missions.list) entry.claimed = !!claimedMap[entry.id];
+        dailyStateTouched = true;
+    }
     if (resp.config_public) adoptConfigPublic(resp.config_public);
     refreshHUD();
+    if (dailyStateTouched) {
+        updateBadges();
+        // 부팅 리컨사일이 데일리 자동 팝업(+600ms)보다 늦게 올 수 있다 → 열려 있는 모달만 다시 그린다.
+        if ($('daily-modal')?.classList.contains('open')) renderDaily();
+        if ($('missions-modal')?.classList.contains('open')) renderMissions();
+    }
     persist();
 }
 
@@ -2500,6 +2556,7 @@ window.SB = {
     state,
     showRewardedAd,
     canShowRewardedAd,
+    gemsPurchasable,
     openExternal, composeEmail,
     APP_VERSION, LEGAL,
     onTap,
@@ -3159,7 +3216,13 @@ for (let i = 0; i < PARTICLE_POOL_SIZE; i++) {
 // LEVEL GENERATION
 // ============================================================
 let nextSpawnZ = 0;
-let patternIndex = 0;
+// 패턴 스폰 커서. 예전엔 "인덱스 × 간격 + 20"으로 z를 매 프레임 다시 계산했는데,
+// 간격(spacing)이 난이도에 따라 줄어들기 때문에 티어가 바뀌는 순간 이미 지나간 인덱스까지
+// 새 간격으로 재계산되면서 스폰 z가 뒤로 점프했다 (자세한 내용은 ensureRoadsAndPatterns 주석 참고).
+// 그래서 인덱스 곱셈 대신 단조 증가하는 z 커서를 쓴다.
+const PATTERN_START_Z = 20;                                   // 첫 패턴은 원점 앞 20 유닛 (기존 "+ 20" 과 동일)
+const PATTERN_LOOKAHEAD = VISIBLE_DISTANCE + PATTERN_START_Z; // 선행 스폰 한계선 = 기존 조건과 동일한 지점
+let nextPatternZ = PATTERN_START_Z;
 let difficulty = 1;
 let spawnedPatternCount = 0;
 
@@ -3634,11 +3697,18 @@ function ensureRoadsAndPatterns() {
     }
 
     // Spawn patterns ahead
+    // patternSpacing은 난이도가 오를수록 좁아진다. 예전 코드는 z를 "인덱스 × spacing + 20"으로
+    // 매 프레임 다시 계산했기 때문에, 티어 경계에서 spacing이 줄어드는 순간 스폰 z가
+    // "인덱스 × 0.4" 만큼 뒤로 밀렸다 → 이미 장애물이 깔린 구간을 while 루프가 한 프레임에
+    // 다시 채워서 장애물이 무더기로 쏟아졌다(70초 지점 21개, 123초 지점 24개, 최대 116 유닛 역행).
+    // 풀 크기가 작아서(CUBE_POOL_SIZE 60) 이 폭발이 풀을 고갈시키고, 그 뒤 구간은 오히려
+    // 텅 비는 2차 증상까지 있었다.
+    // 이제는 단조 증가 커서를 현재 spacing만큼 전진시킨다 → 간격 변화는 "앞으로 스폰될 패턴"에만
+    // 영향을 주고 이미 배치된 구간은 건드리지 않는다. spacing 값과 패턴 선택 로직은 그대로다.
     const patternSpacing = Math.max(5, 8 - getDifficulty() * 0.4);
-    while (patternIndex * patternSpacing < ballZ + VISIBLE_DISTANCE) {
-        const z = patternIndex * patternSpacing + 20;
-        spawnPatternAt(z);
-        patternIndex++;
+    while (nextPatternZ < ballZ + PATTERN_LOOKAHEAD) {
+        spawnPatternAt(nextPatternZ);
+        nextPatternZ += patternSpacing;
     }
 
     // Despawn behind
@@ -3989,13 +4059,31 @@ function consumeBarShield(bar) {
     updateFollowingBalls();
 }
 
+// 부활 경로 가용성 — "부활 화면을 띄울 가치가 있는가"의 단일 판정.
+//  adOk      : 보상형 광고로 즉시 부활 가능(ADS_ENABLED + 플랫폼 게이트 = canShowRewardedAd).
+//  gemOk     : 지금 가진 젬으로 즉시 부활 가능(gems >= reviveGemCost).
+//  gemUpsell : 젬은 있는데 모자란다 → 광고가 꺼진 지금 IAP 가 유일한 매출이고 이 순간이
+//              게임에서 유일하게 젬 수요가 생기는 지점이므로, 버튼을 비활성화하지 말고
+//              상점(Get Coins 탭)으로 보낸다. 단 젬을 못 사는 플랫폼에선 켜지 않는다.
+// 셋 다 false 면 화면 자체를 띄우지 않는다 — 신규 설치(젬 0 + 광고 off)에게 부활 화면은
+// 매 판 끝마다 강제되는 무의미한 "No thanks" 탭 + 5초 카운트다운일 뿐이었다.
+function reviveOptions() {
+    const gemCost = window.SB ? SB.reviveGemCost(revivesUsed) : (5 + revivesUsed * 5);
+    const gems = window.SB ? (SB.state.gems || 0) : 0;
+    const adOk = !!(window.SB && SB.canShowRewardedAd());
+    const gemOk = gems >= gemCost;
+    const gemUpsell = !gemOk && gems > 0 && !!(window.SB && SB.gemsPurchasable && SB.gemsPurchasable());
+    return { gemCost, adOk, gemOk, gemUpsell, any: adOk || gemOk || gemUpsell };
+}
+
 function triggerDeath() {
     if (pendingDeathHandled) return;
     pendingDeathHandled = true;
     hideFirstRunHint();   // don't let the first-run banner linger over revive/result
     if (window.SB) SB.vibrate('error');
 
-    const canRevive = revivesUsed < MAX_REVIVES;
+    // 부활 횟수가 남아도 실행 가능한 경로가 없으면 결과 화면으로 직행한다.
+    const canRevive = revivesUsed < MAX_REVIVES && reviveOptions().any;
     if (canRevive) {
         showReviveScreen();
     } else {
@@ -4006,13 +4094,28 @@ function triggerDeath() {
 let reviveCountdown = 0;
 let reviveInterval = null;
 let reviveStart = 0;        // 부활 카운트다운 벽시계 시작(백그라운드 체류만큼 뒤로 밀림).
+let reviveShopWatch = null; // 상점이 닫히는지 감시하는 폴러(열려있는 동안 카운트다운 정지).
 function showReviveScreen() {
+    clearInterval(reviveShopWatch); reviveShopWatch = null;
+    const opt = reviveOptions();
+    // 방어 — 상점에서 아무것도 안 사고 돌아오는 등 triggerDeath 이외 경로로도 재진입한다.
+    // 가용 경로가 사라졌으면 화면을 띄우지 말고 그대로 결과로 넘긴다.
+    if (!opt.any) { declineRevive(); return; }
     gameState = 'revive';
     // throw the trailing balls for drama but keep run alive
-    const gemCost = window.SB ? SB.reviveGemCost(revivesUsed) : (5 + revivesUsed * 5);
-    document.getElementById('revive-gem-cost').textContent = gemCost;
+    const gemCost = opt.gemCost;
     const gemBtn = document.getElementById('revive-gem');
-    gemBtn.disabled = (window.SB && SB.state.gems < gemCost);
+    // 젬 버튼 3상태 — disabled 죽은 버튼은 만들지 않는다.
+    //  gemOk     : "💎 5 REVIVE NOW"        → 즉시 부활
+    //  gemUpsell : "💎 GET GEMS · NEED 5"   → 상점 Get Coins 탭 (reviveVia('gem') 이 분기)
+    //  둘 다 아님 : 숨김
+    // 라벨을 span 하나로 감싸는 이유는 double-coins 와 동일 — .big-btn 이 display:flex 라
+    // 텍스트 조각을 형제로 두면 각자 flex item 이 되어 내부 공백에서 줄이 쪼개진다.
+    gemBtn.style.display = (opt.gemOk || opt.gemUpsell) ? '' : 'none';
+    gemBtn.disabled = false;
+    gemBtn.innerHTML = opt.gemOk
+        ? '<span>💎 <span id="revive-gem-cost">' + gemCost + '</span> REVIVE NOW</span>'
+        : '<span>💎 GET GEMS · NEED <span id="revive-gem-cost">' + gemCost + '</span></span>';
     // Rewarded revive stays available even for "remove forced ads" buyers —
     // it's opt-in, not a forced interstitial. But hide it entirely when ads are
     // off/unavailable so there's no dead button — gem revive remains. (21 §9-6)
@@ -4055,8 +4158,24 @@ async function reviveVia(method) {
         if (window.SB && adToken) SB.rewardFromAd(adToken, 'revive');
         doRevive();
     } else if (method === 'gem') {
-        const gemCost = window.SB ? SB.reviveGemCost(revivesUsed) : (5 + revivesUsed * 5);
-        if (window.SB && SB.state.gems < gemCost) { SB.toast('Not enough gems'); showReviveScreen(); return; }
+        const opt = reviveOptions();
+        const gemCost = opt.gemCost;
+        // 젬이 모자라면 'Not enough gems' 토스트로 끝내지 않고 상점으로 보낸다.
+        // 상점이 열려 있는 동안 카운트다운은 멈춘 상태(reviveVia 진입부에서 clear)로 두고,
+        // 닫히면 showReviveScreen 이 잔액을 다시 계산해(사면 REVIVE NOW 로 바뀐다)
+        // 카운트다운을 재시작한다. 폴러는 스스로 정리하고 gameState 도 재확인한다.
+        if (!opt.gemOk) {
+            if (!opt.gemUpsell) { showReviveScreen(); return; }
+            if (window.SB) { SB.vibrate('light'); SB.openShop('store'); }
+            clearInterval(reviveShopWatch);
+            reviveShopWatch = setInterval(() => {
+                const modal = document.getElementById('shop-modal');
+                if (modal && modal.classList.contains('open')) return;
+                clearInterval(reviveShopWatch); reviveShopWatch = null;
+                if (gameState === 'revive') showReviveScreen();   // 잔액 재평가 + 카운트다운 재시작
+            }, 300);
+            return;
+        }
         const gemBtn = document.getElementById('revive-gem');
         if (gemBtn) gemBtn.disabled = true;
         // 서버 권위 소비 — 비용/부활카운트는 서버 세션 기준(FC4). sessionToken 은 내부 주입.
@@ -4069,6 +4188,7 @@ async function reviveVia(method) {
 
 function doRevive() {
     revivesUsed++;
+    clearInterval(reviveShopWatch); reviveShopWatch = null;   // 상점 감시 폴러 정리
     document.getElementById('revive-screen').style.display = 'none';
     pendingDeathHandled = false;
     // Put the ball back on the road. moveBall gates ALL vertical physics on
@@ -4120,6 +4240,7 @@ function doRevive() {
 
 function declineRevive() {
     clearInterval(reviveInterval);
+    clearInterval(reviveShopWatch); reviveShopWatch = null;   // 상점 감시 폴러 정리
     document.getElementById('revive-screen').style.display = 'none';
     finalizeGameOver();
 }
@@ -4399,7 +4520,11 @@ function quitToMenu() {
         SB.consumeArmed();
         if (earned > 0) SB.toast('🪙 +' + earned + ' earned');
         // 서버 권위 코인 획득 + 온라인 글로벌 리더보드 점수 제출 (pickupCoins=runCoins)
-        SB.submitScore && SB.submitScore(finalScore, runCoins);
+        // 3번째 인자 = 런 텔레메트리. 서버가 안티치트 통과 후 game_sessions.run 에 기록.
+        SB.submitScore && SB.submitScore(finalScore, runCoins, {
+            cubes: cubesBrokenThisRun, megas: megasThisRun, revives: revivesUsed,
+            combo: bestComboThisRun, balls: ballCountPeak, endReason: 'quit',
+        });
         // 네이티브 리더보드(Game Center / Play Games)에도 추가 제출
         SB.submitNativeScore && SB.submitNativeScore(finalScore);
     }
@@ -4533,7 +4658,7 @@ function resetGameState() {
     playerWorldZ = 0;
     cameraShake = 0;
     nextSpawnZ = 0;
-    patternIndex = 0;
+    nextPatternZ = PATTERN_START_Z;   // 인덱스가 아니라 z 커서를 리셋 (첫 패턴 z = 20, 기존과 동일)
     spawnedPatternCount = 0;
 
     // ---- run economy / progression reset ----
@@ -4633,7 +4758,11 @@ function finalizeGameOver() {
     }
 
     // ---- 서버 권위 코인 획득 + 온라인 글로벌 리더보드 점수 제출 (pickupCoins=runCoins) ----
-    window.SB && SB.submitScore && SB.submitScore(finalScore, runCoins);
+    // 3번째 인자 = 런 텔레메트리. 서버가 안티치트 통과 후 game_sessions.run 에 기록.
+    window.SB && SB.submitScore && SB.submitScore(finalScore, runCoins, {
+        cubes: cubesBrokenThisRun, megas: megasThisRun, revives: revivesUsed,
+        combo: bestComboThisRun, balls: ballCountPeak, endReason: 'death',
+    });
     // ---- 네이티브 리더보드(Game Center / Play Games)에도 추가 제출 ----
     window.SB && SB.submitNativeScore && SB.submitNativeScore(finalScore);
 
@@ -4664,7 +4793,9 @@ function finalizeGameOver() {
         tutorialOverlay.style.display = 'none';
         resultScreen.style.display = 'flex';
         if (window.SB) SB.updateBadges();
-    }, 1500);
+    // 1500ms 는 죽음 → 결과 사이의 죽은 시간이었다. 공 흩날리는 연출은 앞 0.5s 에
+    // 다 읽히고, 부활 화면이 사라진 지금은 이 대기가 그대로 체감 지연이 된다.
+    }, 700);
 }
 
 async function doubleCoins() {
