@@ -102,6 +102,19 @@ Firestore 룰, IAP SKU 정합성, 시크릿·함수 배포 상태, 백필 상태
 - `LAUNCH.md`: 크로스프로모 games.json 에 Snakeball 이 라이브라고 기재 → **실제는 `draft[]` 에 있고 `platforms:{}` 비어있음** (형제 앱이 Snakeball 을 못 찾음).
 - `LAUNCH.md`: iOS 스킴 `snakeball://` → **실제는 `hp-snake://`** (games.json 과는 일치).
 
+### T5. 라이브 콘솔의 400 1건 (2026-08-16 확인, 논블로커)
+
+`snakeball-game.web.app` 부팅 시 콘솔에 `Failed to load resource: 400` 이 **1회** 찍힌다.
+- **코드 회귀 아님**: 동일 코드를 로컬(`localhost:8799`)에 올리면 신·구 빌드 **둘 다 깨끗**하다.
+  라이브에서만 로드되는 리소스가 원인.
+- **범인**: Resource Timing 상 상태 200 인 요청 외에 상태 `0`(교차출처) 인 것이
+  `snakeball-game.firebaseapp.com/__/auth/iframe` 과 `apis.google.com` gapi 부트스트랩뿐이다.
+  Firebase Auth 헬퍼 iframe/gapi 핸드셰이크 노이즈.
+- **기능 영향 없음**: `identitytoolkit accounts:signUp` 200, `accounts:lookup` 200,
+  `getEconomyStatus` 200, 리더보드/startRun/submitScore/deleteMyData 전부 실측 정상.
+- 브라우저 저장소·인증 상태를 전부 지우고 재현해도 동일 → 잔여 토큰 문제도 아님.
+→ 출시 블로커 아님. 여유 있을 때 Firebase Auth Authorized domains 확인 정도.
+
 ### T4. Three.js r160 deprecation 경고
 `build/three.min.js` 사용 → 콘솔 경고(에러 아님). 버전이 `0.160.0` 로 핀되어 있어 현재는 안전.
 CDN 버전을 올릴 경우 ES Module 로 전환 필요.
