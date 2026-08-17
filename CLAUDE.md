@@ -158,6 +158,31 @@ for the pre-launch checklist (real AdMob ids, Play Console IAP, signing keystore
 cd Mobile/Android && ./gradlew assembleDebug   # needs Android SDK
 ```
 
+## ⛔ 건드리면 안 되는 것 (HARD GATES)
+
+아래를 바꿔야 할 것 같으면 **멈추고 오너에게 물어라.** 전부 실제로 사고가 났거나 날 뻔한 지점이다.
+
+| 대상 | 위치 | 왜 |
+|---|---|---|
+| `MIGRATION_CUTOFF_MS` | `functions/coinSystem.js` | 주석엔 "배포 직전 갱신 필수"라 써 있지만 **최초 1회용이고 이미 끝났다**. 지금 올리면 신규 계정이 무료 코인 임포트 대상이 된다. 확인법: `node functions/scripts/backfill-createdAt.js` → 실행 거부되면 이미 라이브 |
+| `MAX_SCORE_PER_SEC`·`BASE_BUFFER`·`MAX_CREDITED_SECONDS` | `functions/index.js` | 리더보드 안티치트 상한. 느슨하면 위조 1위, 조이면 정상 플레이어 거부. 볼 경제를 바꾸면 여기도 재도출해야 한다 |
+| `MISSIONS_PER_DAY` | `functions/coinSystem.js` | 클라가 뽑는 데일리 미션 수와 짝. 어긋나면 정상 유저가 미션을 못 받는다 |
+| `firestore.rules` 의 `users/{uid}` = `allow write: if false` | — | **의도된 것.** 클라는 Firestore 에 문서를 한 번도 쓰지 않는다. 열면 무료 코인 + 닉네임 모더레이션 우회가 재발한다(실제로 한 달간 열려 있었다) |
+| `functions/iapVerification.js` | — | 영수증 검증. 상수/추가 필드 외 구조 변경 금지 |
+
+**순서 불변식** — `submitScore` 는 ①세션 `used:true` 트랜잭션 → ②안티치트 상한 검증 → ③지급 순이다.
+세션에 뭔가 기록하는 코드는 **반드시 ② 뒤**에 넣는다. ①에 넣으면 위조 점수가 기록된다.
+검사: `indexOf('score > maxAllowed') < indexOf('runRecordedAt')`.
+
+**`index.html` 은 `<script type="module">` 이 두 개**(SB 레이어 / 게임)이고 **스코프가 분리돼 있다.**
+게임 쪽에서 `load()`/`save()` 를 부르면 `ReferenceError` — `localStorage` 직접 또는 `window.SB` 브리지를 쓴다.
+
+**배포는 플레인을 쪼개지 말 것.** `deploy:web` 이 hosting + rules 를 함께 배포하도록 체이닝돼 있다.
+`--only functions` 만 반복하다 룰이 한 달 묵어 익스플로잇이 열렸던 전례가 있다.
+functions 는 바뀐 것만: `firebase deploy --only functions:이름1,functions:이름2`.
+
+---
+
 ## WORKFLOW RULES
 - After changing `index.html`, run `npm run sync:public` (or `deploy:web`) so the
   hosted copy that iOS/Android load stays in sync.

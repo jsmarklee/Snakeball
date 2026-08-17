@@ -166,3 +166,22 @@ CDN 버전을 올릴 경우 ES Module 로 전환 필요.
 4. **실기기 E2E**(런북 §4) — IAP 결제손실/복구, 경제 보존, 복구코드, 데이터삭제.
 5. **testDeviceIds 등록**(O2) → **광고 ON**(O1) → 실광고 E2E.
 6. functions 재배포 시 **T1 주의**(컷오프 고정).
+
+---
+
+## 📱 실기기 확인 — **미완료** (2026-08-16 배포분, 5분)
+
+7건(텔레메트리·스폰·부활·KST·삭제·인덱스)을 배포했고 서버 왕복은 실측 검증했으나,
+아래는 실기기에서만 확인 가능하다. 제출 전에 한 번 돌릴 것.
+
+| # | 동작 | 기대 |
+|---|---|---|
+| L1 | 1판 플레이 → 사망 | 부활 경로가 없으면 CONTINUE 화면이 **뜨지 않고** 결과창이 ~0.7초 만에 뜬다 |
+| L2 | 60초 이상 플레이 → 사망 | 난이도 구간 전환에서 장애물 **뭉텅이 스폰 없음** |
+| L3 | Firestore 콘솔 → `game_sessions` 를 **`runRecordedAt` desc** 로 정렬 | 최신 문서에 `platform`·`appVersion`·`run.{score,endReason,…}` 존재 |
+| L4 | KST 자정 넘겨 재접속 | 데일리 스트릭 유지, 서버값과 일치 |
+| L5 | 설정 → Delete My Data | `sessionsDeleted > 0`, 해당 세션 문서 사라짐 |
+| L6 | `node functions/scripts/analytics-retention.js --days 7` | 코호트 표 출력, exit 0 |
+
+> 웹에서 이미 확인된 것: startRun/submitScore 텔레메트리 왕복, `sessionsDeleted:1`,
+> 게임 부팅·힌트 표시. L1·L2·L4 는 실제 플레이가 필요해 남겨둔다.
