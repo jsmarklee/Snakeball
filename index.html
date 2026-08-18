@@ -1787,6 +1787,7 @@ async function submitScore(score, pickupCoins, runStats) {
         const res = await fbFns.httpsCallable('submitScore')(payload);
         if (res?.data) {
             myStanding = { best: res.data.best, rank: res.data.rank };
+            invalidateLeaderboardCache();   // 내 신기록이 캐시 때문에 안 보이면 안 된다
             // 서버가 이 런의 코인을 지급 → up-only reconcile (로컬 낙관값 아래로 안 내림, FC5).
             applyServerBalance({ coins: res.data.coins }, { upOnly: true });
         }
@@ -2072,17 +2073,31 @@ function lbWithTimeout(promise, ms, label) {
 }
 
 // fetchLeaderboard — 글로벌 top-N. 실패 시 [] 반환.
+//
+// 60초 메모리 캐시. 이 쿼리 1회 = Firestore 읽기 **50건**으로, 런 1회(읽기 2건)보다
+// 25배 비싸다. 랭킹 화면은 닫았다 여는 게 흔해서, 캐시가 없으면 읽기가 쓰기보다 먼저
+// 무료 한도를 친다. 리더보드는 초 단위 신선도가 필요한 화면이 아니다.
+// 세션 메모리에만 두는 이유: 앱을 다시 켜면 새로 받는 게 맞고, localStorage 에 넣으면
+// 오래된 순위가 오프라인에서 되살아난다.
+let _lbCache = null;          // { at: epochMs, n: number, rows: [] }
+const LB_CACHE_MS = 60 * 1000;
+function invalidateLeaderboardCache() { _lbCache = null; }
 async function fetchLeaderboard(n = 50) {
     if (!lbAvailable || !fbDb) return [];
+    if (_lbCache && _lbCache.n >= n && (Date.now() - _lbCache.at) < LB_CACHE_MS) {
+        return _lbCache.rows.slice(0, n);
+    }
     try {
         const snap = await lbWithTimeout(
             fbDb.collection('leaderboard_global').orderBy('score', 'desc').limit(n).get(),
             8000, 'leaderboard');
-        return snap.docs.map(d => {
+        const rows = snap.docs.map(d => {
             const v = d.data() || {};
             return { uid: v.uid || d.id, name: v.name || 'Anonymous', score: v.score || 0 };
         });
-    } catch (e) { return []; }
+        _lbCache = { at: Date.now(), n, rows };
+        return rows;
+    } catch (e) { return []; }   // 실패는 캐시하지 않는다(다음 열기에 재시도)
 }
 
 // setPlayerName — 닉네임 설정/변경. 성공 시 state.name 저장, 정리된 이름 반환.
@@ -2095,6 +2110,7 @@ async function setPlayerName(name) {
         const clean = res?.data?.name;
         if (clean) {
             state.name = clean; save('sb_name', clean);
+            invalidateLeaderboardCache();   // 바뀐 닉네임이 즉시 반영되도록
             return clean;
         }
         return null;
