@@ -5361,10 +5361,16 @@ function update() {
         if (flickerTimer > 0) {
             flickerTimer -= dt;
             const flick = Math.floor(flickerTimer * 20) % 3;
-            const colors = [0xffffff, 0x63f8cf, 0x4ad585];
-            mainBallMesh.material.color.set(colors[flick]);
+            // 깜빡임은 '장착 스킨 ↔ 흰색' 사이에서만 오간다. 예전에는 민트/라임
+            // (0x63f8cf/0x4ad585)로 갔는데, 그 둘은 월드의 장애물·픽업 색이라
+            // 픽업할 때마다 플레이어 공이 잠깐 장애물색이 됐다.
+            const skinColor = (window.SB && SB.activeSkin) ? SB.activeSkin().color : 0xffffff;
+            mainBallMesh.material.color.set(flick === 0 ? 0xffffff : skinColor);
             if (flickerTimer <= 0) {
-                mainBallMesh.material.color.set(0xffffff);
+                // 끝나면 반드시 장착 스킨으로 복원한다. 흰색을 하드코딩하면
+                // 유료 스킨(Ruby 2800코인 / Galaxy 30젬)이 첫 픽업 순간 사라져
+                // 런 내내 흰 공으로 남는다 — 구매가 작동하지 않는 것과 같다.
+                applyActiveSkin();
             }
         }
 
