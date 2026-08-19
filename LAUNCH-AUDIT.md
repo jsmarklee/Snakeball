@@ -62,6 +62,15 @@ Firestore 룰, IAP SKU 정합성, 시크릿·함수 배포 상태, 백필 상태
 
 ### B3. Android 릴리스 서명 미구성 (조용한 폴백 = 함정)
 `Mobile/Android/keystore.properties` 없음. `build.gradle.kts` 가 keystore 부재 시 **debug 서명으로 조용히 폴백**.
+
+**실증(2026-08-17)**: 키스토어 없이 `./gradlew bundleRelease` 실행 → `BUILD SUCCESSFUL`,
+`app-release.aab` 생성됨. 그 AAB 의 서명 인증서를 열어보면:
+```
+Owner: C=US, O=Android, CN=Android Debug
+```
+즉 **성공한 것처럼 보이는 릴리스 AAB 가 debug 키로 서명**된다. 경고도 안 뜬다.
+Play Console 업로드 단계에서야 거부되므로, 그 전까지 "빌드 됐으니 준비 끝" 으로 오인하기 쉽다.
+(확인용 AAB 는 실수 배포 방지를 위해 삭제함.)
 → `./gradlew bundleRelease` 가 성공한 것처럼 보이지만 Play 업로드에서 거부. 빌드 시점에 안 터지므로 놓치기 쉬움.
 
 ---
