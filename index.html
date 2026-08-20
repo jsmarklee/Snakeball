@@ -3968,6 +3968,9 @@ function checkCollisions() {
                 }
                 playSound('ironCube');
                 cameraShake = 0.5;
+                // 나머지 세 사망 지점(레이저·바 침식·큐브 과충돌)은 전부 파티클을 뿌리는데
+                // 철큐브 즉사만 빠져 있었다. 같은 "즉사" 인데 한 곳만 조용히 끝난다.
+                spawnParticles(ballPos.clone(), new THREE.Color(1, 0.2, 0.2), 14);
                 ballCount = 0;
                 triggerDeath();
                 return;
