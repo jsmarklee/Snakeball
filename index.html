@@ -709,12 +709,12 @@ function save(key, val) { try { LS.setItem(key, JSON.stringify(val)); } catch (e
 // ---------- Catalog ----------
 const SKINS = [
     { id:'white',   name:'Classic',  desc:'The original.',          cost:{}, color:0xffffff, emissive:0x000000, ei:0,   metal:0.5, rough:0.2 },
-    { id:'mint',    name:'Mint',     desc:'Cool & fresh.',          cost:{coins:300},  color:0x63f8cf, emissive:0x1f8f78, ei:0.4, metal:0.4, rough:0.2 },
-    { id:'lime',    name:'Lime',     desc:'Electric green.',        cost:{coins:600},  color:0x4ad585, emissive:0x2f8f55, ei:0.5, metal:0.3, rough:0.2 },
-    { id:'coral',   name:'Coral',    desc:'Warm & loud.',           cost:{coins:900},  color:0xe87352, emissive:0x8f3f2a, ei:0.4, metal:0.3, rough:0.2 },
-    { id:'gold',    name:'Gold',     desc:'Shiny flex.',            cost:{coins:1800}, color:0xffd23f, emissive:0xaa7a00, ei:0.5, metal:0.9, rough:0.1 },
+    { id:'mint',    name:'Mint',     desc:'Cool & fresh.',          cost:{coins:300},  color:0x63f7f8, emissive:0x1f868f, ei:0.4, metal:0.4, rough:0.2 },
+    { id:'lime',    name:'Lime',     desc:'Electric green.',        cost:{coins:600},  color:0x22e970, emissive:0x2f8f52, ei:0.5, metal:0.3, rough:0.2 },
+    { id:'coral',   name:'Coral',    desc:'Warm & loud.',           cost:{coins:900},  color:0xe84f24, emissive:0x8f3f2a, ei:0.4, metal:0.3, rough:0.2 },
+    { id:'gold',    name:'Gold',     desc:'Shiny flex.',            cost:{coins:1800}, color:0xffac3f, emissive:0xaa5800, ei:0.5, metal:0.9, rough:0.1 },
     { id:'ruby',    name:'Ruby',     desc:'Deep red glow.',         cost:{coins:2800}, color:0xff2d55, emissive:0xaa0022, ei:0.7, metal:0.6, rough:0.1 },
-    { id:'galaxy',  name:'Galaxy',   desc:'Cosmic purple.',         cost:{gems:30},    color:0xa965aa, emissive:0x6a2faa, ei:0.8, metal:0.7, rough:0.1 },
+    { id:'galaxy',  name:'Galaxy',   desc:'Cosmic purple.',         cost:{gems:30},    color:0xb347b4, emissive:0x6a2faa, ei:0.8, metal:0.7, rough:0.1 },
     { id:'rainbow', name:'Rainbow',  desc:'Animated hue cycle.',    cost:{gems:80},    color:0xffffff, emissive:0xff0000, ei:0.9, metal:0.8, rough:0.1, rainbow:true },
     // --- Object skins (procedural CanvasTexture, no animation needed — they just roll) ---
     { id:'beach',     name:'Beach Ball',  desc:'Summer vibes.',        cost:{coins:800},  tex:'beachball',  color:0xffffff, emissive:0x000000, ei:0.05, metal:0.1, rough:0.55 },

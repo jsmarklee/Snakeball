@@ -23,7 +23,7 @@
       "internalID": "1000000001",
       "localizations": [
         {
-          "description": "5,000 coins",
+          "description": "30,000 coins",
           "displayName": "Chest of Coins",
           "locale": "en_US"
         }
@@ -38,7 +38,7 @@
       "internalID": "1000000001",
       "localizations": [
         {
-          "description": "5,000 coins",
+          "description": "50 gems",
           "displayName": "Handful of Gems",
           "locale": "en_US"
         }
@@ -53,7 +53,7 @@
       "internalID": "1000000001",
       "localizations": [
         {
-          "description": "5,000 coins",
+          "description": "200 gems",
           "displayName": "Bag of Gems",
           "locale": "en_US"
         }
