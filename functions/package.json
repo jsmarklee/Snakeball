@@ -2,7 +2,7 @@
   "name": "snakeball-functions",
   "description": "Cloud Functions for Snakeball (leaderboard + anti-cheat)",
   "scripts": {
-    "lint": "echo 'lint ok'"
+    "lint": "node lint.mjs"
   },
   "engines": {
     "node": "20"

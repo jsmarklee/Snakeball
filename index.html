@@ -1790,6 +1790,19 @@ async function submitScore(score, pickupCoins, runStats) {
             invalidateLeaderboardCache();   // 내 신기록이 캐시 때문에 안 보이면 안 된다
             // 서버가 이 런의 코인을 지급 → up-only reconcile (로컬 낙관값 아래로 안 내림, FC5).
             applyServerBalance({ coins: res.data.coins }, { upOnly: true });
+            // 서버가 실제로 준 액수로 결과화면을 **정정**한다. 추정과 다를 수 있는 정상 경우가
+            // 있다(일일 캡에 이번 런으로 막 도달, 서버 설정 변경, 픽업 상한). 화면이 계속
+            // 추정치를 들고 있으면 "약속한 만큼 안 들어왔다"로 보인다.
+            if (Number.isFinite(res.data.earned)) {
+                // 게임 모듈(script #2)의 결과화면을 고쳐야 하는데 두 <script type="module">
+                // 은 스코프가 분리돼 있다 → window 브리지로 넘긴다(직접 호출은 ReferenceError).
+                window.__reconcileRunCoins?.(res.data.earned);
+                // 이번 런이 캡을 그만큼 먹었으니 잔량도 줄인다(다음 런 추정이 또 부풀지 않게).
+                if (Number.isFinite(dailyRemaining.daily_coin_earn_remaining)) {
+                    dailyRemaining.daily_coin_earn_remaining =
+                        Math.max(0, dailyRemaining.daily_coin_earn_remaining - res.data.earned);
+                }
+            }
         }
     } catch (e) {
         // 세션은 있었으나 전송이 네트워크성 실패 → 저장된 토큰으로 큐잉(replay 멱등, FC6).
@@ -1806,6 +1819,38 @@ async function submitScore(score, pickupCoins, runStats) {
 // mission)에서만 일어난다. 설계: docs/economy-migration-design.md (FC1~FC7).
 // ============================================================
 let configPublic = null;   // getEconomyStatus 가 준 공개 설정 (표시가/canAfford 프리체크)
+// 서버가 내려주는 일일 캡 잔량. null = "아직 모름"이라 캡을 적용하지 않는다(과소 약속 방지).
+// 서버 필드명을 그대로 키로 쓴다 — 이름이 어긋나면 조용히 undefined 가 되기 때문.
+const dailyRemaining = {
+    daily_coin_earn_remaining: null,
+    daily_rewarded_remaining: null,
+    daily_revive_remaining: null,
+};
+
+// estimateRunCoins — 결과화면에 "이번 판에 얼마 벌었다"고 **약속하기 전에** 서버가 실제로
+// 줄 액수를 그대로 계산한다. functions/coinSystem.js 의 grantRunCoins 와 같은 식이어야 한다:
+//
+//     scoreCoins = floor(score * coin_per_score)
+//     pickup     = min(pickupCoins, floor(coins_per_sec_cap * elapsedSec))
+//     earned     = min(scoreCoins + pickup, 일일 캡 잔량)
+//
+// 예전엔 `runCoins + floor(finalScore / 10)` 하나로 끝냈다. 그건 세 가지를 무시한다:
+//   1. coin_per_score 가 서버 설정값이다(0.1 은 기본값일 뿐 — 서버에서 바꾸면 바로 어긋난다)
+//   2. 픽업에는 초당 상한이 있다(짧은 런 + 자석이면 약속이 부풀려진다)
+//   3. **일일 캡** — 캡에 걸린 유저는 약속보다 적게 받는다
+// 결과: 화면은 "+120" 이라 했는데 잔액은 그만큼 안 오르는, 지급 누락처럼 보이는 상태.
+function estimateRunCoins(score, pickupCoins, elapsedSeconds) {
+    const perScore = Number.isFinite(configPublic?.coin_per_score) ? configPublic.coin_per_score : 0.1;
+    const perSecCap = Number.isFinite(configPublic?.coins_per_sec_cap) ? configPublic.coins_per_sec_cap : 30;
+    const scoreCoins = Math.floor(Math.max(0, score) * perScore);
+    const rawPickup = Number.isFinite(pickupCoins) ? Math.max(0, Math.floor(pickupCoins)) : 0;
+    const pickupCap = Math.floor(perSecCap * Math.max(0, elapsedSeconds || 0));
+    const base = scoreCoins + Math.min(rawPickup, pickupCap);
+    const remaining = dailyRemaining.daily_coin_earn_remaining;
+    // 잔량을 모르면(부팅 실패/오프라인) 캡을 적용하지 않는다 — 서버가 덜 줄 수는 있어도,
+    // 모르는 상태에서 임의로 깎아 실제보다 적게 약속하는 게 더 나쁘다.
+    return Number.isFinite(remaining) ? Math.min(base, Math.max(0, remaining)) : base;
+}
 let economyOnline = false; // 부팅 reconcile 성공 여부. false 면 소비 차단(캐시 읽기전용).
 let _economyRetryArmed = false; // 늦게 도착한 인증에 대한 재부팅 리스너 1회만 등록.
 let _economyBooting = false;    // bootEconomy 중복 실행 가드.
@@ -1851,6 +1896,12 @@ function applyServerBalance(resp, opts = {}) {
         dailyStateTouched = true;
     }
     if (resp.config_public) adoptConfigPublic(resp.config_public);
+    // 일일 캡 잔량 — 서버가 getEconomyStatus 로 내려주는데 클라가 여태 한 번도 안 봤다.
+    // 이걸 모르면 결과화면이 "+N 코인" 이라고 약속해놓고 서버는 캡에 걸려 그보다 적게 준다
+    // (estimateRunCoins 참조). 응답에 없는 필드는 건드리지 않는다(부분 응답 대응).
+    for (const k of ['daily_coin_earn_remaining', 'daily_rewarded_remaining', 'daily_revive_remaining']) {
+        if (Number.isFinite(resp[k])) dailyRemaining[k] = Math.max(0, Math.floor(resp[k]));
+    }
     refreshHUD();
     if (dailyStateTouched) {
         updateBadges();
@@ -2607,6 +2658,7 @@ window.SB = {
     openShop,
     // ---- Online leaderboard ----
     startRun, submitScore, fetchLeaderboard, setPlayerName,
+    estimateRunCoins,
     openLeaderboard,
     // ---- Native leaderboards (iOS Game Center / Android Play Games) ----
     submitNativeScore, showNativeLeaderboard,
@@ -4005,7 +4057,17 @@ function checkCollisions() {
             playSound('hitWall');
             continue;
         }
-        if (shieldActive) { consumeBarShield(bar); continue; }
+        // 실드는 상점에서 "Survive one deadly hit" 로 판다 — **치명타 1회**다.
+        // 예전엔 여기서 bar 에 닿기만 하면 무조건 소비했는데, bar 는 두 종류다:
+        //   - deadly(레이저)   → 무조건 즉사        → 실드가 쓰일 자리
+        //   - 침식형           → 공을 45% 깎을 뿐   → 공이 남으면 **안 죽는다**
+        // 침식형에서 먼저 써버리면, 300코인짜리 파워업이 "안 죽을 히트"에 소모되고
+        // 정작 뒤에 오는 즉사에는 남아있지 않다. 그래서 **치명 여부를 먼저 계산**하고,
+        // 실제로 죽는 경우에만 소비한다. (큐브 쪽 두 곳은 원래부터 치명 경로였다 —
+        // 아이언은 즉사, 일반 큐브는 ballCount <= hp 라 else 가 triggerDeath 다.)
+        const erosionLoss = bar.deadly ? 0 : Math.max(4, Math.ceil(ballCount * 0.45));
+        const barLethal = bar.deadly || (ballCount - erosionLoss) <= 0;
+        if (barLethal && shieldActive) { consumeBarShield(bar); continue; }
 
         bar.hit = true; // debounce so one contact doesn't fire every frame
         if (bar.deadly) {
@@ -4018,8 +4080,7 @@ function checkCollisions() {
             return;
         }
         // Erosion hazard: peel off a big chunk of balls + shove back. Empties → death.
-        const loss = Math.max(4, Math.ceil(ballCount * 0.45));
-        ballCount = Math.max(0, ballCount - loss);
+        ballCount = Math.max(0, ballCount - erosionLoss);
         mainBallGroup.position.z = bz - bar.halfD - ballRadius - HIT_BACK_DISTANCE;
         playerWorldZ = mainBallGroup.position.z;
         cameraShake = 0.4;
@@ -4732,6 +4793,23 @@ function resetGameState() {
 }
 
 let lastRunBaseCoins = 0;
+
+// SB(script #1)가 submitScore 응답을 받으면 여기로 서버의 실제 지급액을 넘겨준다.
+// 결과화면 숫자와 DOUBLE 버튼 라벨이 전부 lastRunBaseCoins 를 읽으므로 한 곳만 고치면 된다.
+// 더블을 이미 받았으면(coinsDoubled) 화면에 base+granted 가 떠 있으니 건드리지 않는다.
+window.__reconcileRunCoins = (earned) => {
+    if (!Number.isFinite(earned) || earned === lastRunBaseCoins) return;
+    lastRunBaseCoins = Math.max(0, Math.floor(earned));
+    if (coinsDoubled) return;
+    const el = document.getElementById('result-coins-amount');
+    if (el) el.textContent = lastRunBaseCoins;
+    const dbl = document.getElementById('double-coins');
+    if (dbl) {
+        // 지급이 0이면(일일 캡 소진) 두 배로 줄 것도 없다 → 죽은 버튼이 되지 않게 숨긴다.
+        dbl.style.display = (lastRunBaseCoins > 0 && window.SB && SB.canShowRewardedAd()) ? '' : 'none';
+        dbl.innerHTML = '<span>▶ DOUBLE <span class="coin-ico"></span> (+' + lastRunBaseCoins + ')</span>';
+    }
+};
 let coinsDoubled = false;
 
 function finalizeGameOver() {
@@ -4768,7 +4846,13 @@ function finalizeGameOver() {
     document.getElementById('best-score-result').textContent = 'BEST: ' + bestScore;
 
     // ---- Coin reward: collected coins + score bonus ----
-    lastRunBaseCoins = runCoins + Math.floor(finalScore / 10);
+    // 서버(grantRunCoins)와 **같은 식**으로 추정한다 — 예전의 `runCoins + floor(score/10)` 은
+    // coin_per_score 설정, 픽업 초당 상한, 일일 캡을 전부 무시해서 캡에 걸린 유저에게
+    // 실제보다 많은 액수를 약속했다. submitScore 응답이 오면 아래 __reconcileRunCoins 가
+    // 서버가 실제로 준 값으로 덮어쓴다.
+    lastRunBaseCoins = window.SB
+        ? SB.estimateRunCoins(finalScore, runCoins, gameTimer)
+        : runCoins + Math.floor(finalScore / 10);
     coinsDoubled = false;
     if (window.SB) SB.addCoins(lastRunBaseCoins, true);   // 낙관적 표시 — submitScore 가 서버값으로 reconcile
     document.getElementById('result-coins-amount').textContent = lastRunBaseCoins;
