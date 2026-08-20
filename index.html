@@ -2200,10 +2200,24 @@ function openLeaderboard() {
 }
 
 // iOS/Android에서는 Firebase(크로스플랫폼) 리더보드 위에 네이티브 리더보드 버튼을 노출.
+// 네이티브 리더보드(Game Center / Play Games) 버튼.
+//
+// ⚠️ 플랫폼만 보고 띄우면 안 된다. 콘솔 설정이 안 끝난 상태에서도 버튼이 뜨는데, 누르면
+// 아무 일도 일어나지 않는다 — Android 는 games_app_id 가 플레이스홀더(0000000000)면
+// PlayGamesManager 인증이 영영 성공하지 못해 showLeaderboard 가 조용히 early-return 하고,
+// iOS 는 App Store Connect 에 리더보드가 없으면 빈/에러 시트가 뜬다. 리더보드 모달은
+// 홈에서 두 탭이라 리뷰어가 반드시 누르는 자리다(죽은 버튼 = 심사 리스크).
+// 서버 리더보드는 이 버튼과 무관하게 전 플랫폼에서 이미 동작한다.
+//
+// 네이티브 브리지가 "설정 완료"를 알려줄 때만 노출한다. 콘솔 작업이 끝나면
+// LAUNCH.md §F 대로 값을 채우고 네이티브를 재빌드하면 자동으로 다시 나타난다.
+function nativeLeaderboardReady() {
+    return !!(window.__nativeLeaderboardAvailable === true);
+}
 function renderNativeLeaderboardButton() {
     const host = $('leaderboard-native');
     if (!host) return;
-    if (platform === 'ios' || platform === 'android') {
+    if ((platform === 'ios' || platform === 'android') && nativeLeaderboardReady()) {
         const label = platform === 'ios' ? '🎮 Game Center' : '🎮 Play Games';
         host.innerHTML =
             '<button class="big-btn ghost" id="lb-native-btn" style="margin:0 0 12px">' + label + '</button>';

@@ -427,7 +427,16 @@ struct WebView: UIViewRepresentable {
             Task { @MainActor in
                 switch action {
                 case "authenticate":
-                    _ = await GameCenterManager.shared.authenticate()
+                    let ok = await GameCenterManager.shared.authenticate()
+                    // 인증에 성공했을 때만 웹에 알린다 — 웹은 이 플래그가 true 일 때만
+                    // 리더보드 모달에 '🎮 Game Center' 버튼을 그린다. App Store Connect 에
+                    // 리더보드가 아직 없거나 App ID 에 Game Center 가 꺼져 있으면 인증이
+                    // 실패하고, 그때 버튼을 띄우면 눌러도 빈/에러 시트만 뜨는 죽은 버튼이
+                    // 된다(리뷰어가 두 탭 만에 닿는 자리라 심사 리스크). LAUNCH.md §F.
+                    if ok {
+                        self.webView?.evaluateJavaScript(
+                            "window.__nativeLeaderboardAvailable = true;", completionHandler: nil)
+                    }
                 case "submitScore":
                     // score may arrive as Int or Double from JS.
                     let score: Int = {

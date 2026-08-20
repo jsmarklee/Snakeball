@@ -45,7 +45,10 @@ class MainActivity : ComponentActivity() {
     private var pendingRewardEarned: Boolean = false
     private var rewardCallbackFired: Boolean = false
     lateinit var billingManager: BillingManager
-    lateinit var playGamesManager: PlayGamesManager
+    // Play Games 가 콘솔에 설정되지 않았으면 아예 생성하지 않는다(아래 onCreate 참조).
+    // lateinit 이면 미설정 빌드에서 브리지가 건드리는 순간 UninitializedPropertyAccessException
+    // 으로 죽으므로 nullable 로 둔다.
+    var playGamesManager: PlayGamesManager? = null
     private final var TAG = "MainActivity"
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -113,10 +116,31 @@ class MainActivity : ComponentActivity() {
         billingManager.startConnection { billingManager.redeliverUnconsumedPurchases() }
 
         // Play Games Services: 초기화 + 런치 시 사인인 (iOS Game Center와 동일 역할).
-        playGamesManager = PlayGamesManager(this)
-        playGamesManager.initialize()
-        playGamesManager.authenticate { success ->
-            android.util.Log.d(TAG, "Play Games sign-in on launch: $success")
+        //
+        // ⚠️ games_app_id 가 플레이스홀더면 아예 시도하지 않는다. 미설정 상태에서 인증을
+        // 걸면 절대 성공하지 못하는데, PlayGamesManager 는 무음 실패를 대화형 signIn() 으로
+        // 승격시키므로 **매 콜드스타트마다 게임 시작 전에 Play Games 오류 시트가 뜰 수 있다.**
+        // 그리고 인증이 안 되면 리더보드 버튼도 눌러도 무반응이 된다(죽은 버튼 = 심사 리스크).
+        // 콘솔에서 실제 id 를 넣으면(LAUNCH.md §F) 이 가드가 저절로 풀리고, 웹 레이어에도
+        // __nativeLeaderboardAvailable 로 알려 버튼이 다시 나타난다.
+        val pgsAppId = getString(R.string.games_app_id)
+        val pgsConfigured = pgsAppId.isNotBlank() && !pgsAppId.all { it == '0' }
+        if (pgsConfigured) {
+            val pgs = PlayGamesManager(this)
+            playGamesManager = pgs
+            pgs.initialize()
+            pgs.authenticate { success ->
+                android.util.Log.d(TAG, "Play Games sign-in on launch: $success")
+                // 이 블록은 webView 생성보다 먼저 실행되고 콜백은 비동기라, 콜백 시점에
+                // webView 가 아직 없을 수 있다. 위 billing 콜백들과 같은 가드를 쓴다.
+                if (success && ::webView.isInitialized) {
+                    webView.post {
+                        webView.evaluateJavascript("window.__nativeLeaderboardAvailable = true;", null)
+                    }
+                }
+            }
+        } else {
+            android.util.Log.w(TAG, "Play Games not configured (games_app_id placeholder) — skipping sign-in")
         }
 
         // Keep screen awake during gameplay
@@ -609,7 +633,7 @@ class AndroidBridge(private val webView: WebView, private val context: Context, 
             val obj = JSONObject(json ?: "{}")
             val score = obj.optLong("score", 0L)
             activity.runOnUiThread {
-                activity.playGamesManager.submitScore(score) { success ->
+                activity.playGamesManager?.submitScore(score) { success ->
                     val js = "window.__bridgeCallbacks('gameCenterScore', { success: $success });"
                     webView.post { webView.evaluateJavascript(js, null) }
                 }
@@ -622,7 +646,7 @@ class AndroidBridge(private val webView: WebView, private val context: Context, 
     @JavascriptInterface
     fun showLeaderboard(json: String? = null) {
         activity.runOnUiThread {
-            activity.playGamesManager.showLeaderboard()
+            activity.playGamesManager?.showLeaderboard()
         }
     }
 
