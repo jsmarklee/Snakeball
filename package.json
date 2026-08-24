@@ -15,8 +15,9 @@
     "toss:deploy": "ait deploy",
     "check:skins": "node tools/check-skin-readability.mjs",
     "check:economy": "node tools/check-economy-contract.mjs",
-    "check": "npm run check:skins && npm run check:economy && npm run check:road",
-    "check:road": "node tools/check-road-flow.mjs"
+    "check": "npm run check:skins && npm run check:economy && npm run check:road && npm run check:listing",
+    "check:road": "node tools/check-road-flow.mjs",
+    "check:listing": "node tools/check-store-listing.mjs"
   },
   "devDependencies": {
     "vite": "^5.0.0"
