@@ -160,8 +160,10 @@ canvas { display: block; width: 100%; height: 100%; }
    mirror that material: bright core, #ffd23f body, darkened rim. */
 .coin-ico {
     display: inline-block; width: 1em; height: 1em; border-radius: 50%;
+    /* 1em 짜리(상점 가격 버튼 등)에서는 바깥 스톱이 면적을 다 먹어 갈색으로 보인다.
+       금색 본체(#ffd23f)를 넓게 깔고 어두운 테는 마지막 12%만 준다. */
     background: radial-gradient(circle at 34% 30%,
-        #fff6c2 0%, #ffd23f 40%, #eaa81b 70%, #a8730a 100%);
+        #fff6c2 0%, #ffd94f 46%, #f0b527 82%, #b8800c 100%);
     box-shadow: inset 0 0 0 0.075em rgba(255,255,255,0.4), 0 0 0.4em rgba(255,210,63,0.45);
     vertical-align: -0.12em; flex-shrink: 0;
 }
@@ -733,8 +735,8 @@ const POWERUPS = [
 
 // IAP products (SKU ids must match native store + Cloud Function PRODUCTS map)
 const STORE = [
-    { id:'coins.5000', kind:'iap', title:'Pouch of Coins', grant:{coins:5000},  price:'$0.99', em:'🪙' },
-    { id:'coins.30000',   kind:'iap', title:'Chest of Coins',  grant:{coins:30000}, price:'$4.99', em:'🪙', best:'BEST VALUE' },
+    { id:'coins.5000', kind:'iap', title:'Pouch of Coins', grant:{coins:5000},  price:'$0.99', em:'<span class="coin-ico"></span>' },
+    { id:'coins.30000',   kind:'iap', title:'Chest of Coins',  grant:{coins:30000}, price:'$4.99', em:'<span class="coin-ico"></span>', best:'BEST VALUE' },
     { id:'gems.small',  kind:'iap', title:'Handful of Gems', grant:{gems:50},     price:'$2.99', em:'💎' },
     { id:'gems.big',    kind:'iap', title:'Bag of Gems',     grant:{gems:200},    price:'$9.99', em:'💎', best:'BEST VALUE' },
 ];
@@ -1331,14 +1333,25 @@ async function claimDaily() {
     await submitEarn('claimDaily', 'claimDaily', {});
 }
 
-function rewardText(r) {
+// 🪙 이모지는 **Apple 에서만 은색**으로 렌더된다(안드로이드·윈도우는 금색). 게임의 코인은
+// 3D 픽업부터 HUD 까지 전부 금색이라, 이모지를 쓴 자리만 은색 코인이 섞여 나온다.
+// → innerHTML 로 들어가는 자리는 CSS 코인(.coin-ico)을, textContent 인 toast 는 이모지를 쓴다.
+// 두 함수를 나눠 둔 이유가 이것이다. 합치지 말 것.
+const COIN_ICO = '<span class="coin-ico"></span>';
+function rewardText(r) {          // toast 전용 — textContent 라 마크업이 안 먹는다
     const parts = [];
     if (r.coins) parts.push('🪙 ' + r.coins);
     if (r.gems) parts.push('💎 ' + r.gems);
     return parts.join('  ');
 }
-function costText(c) {
-    if (c.coins) return '🪙 ' + c.coins;
+function rewardHtml(r) {          // innerHTML 전용
+    const parts = [];
+    if (r.coins) parts.push(COIN_ICO + ' ' + r.coins);
+    if (r.gems) parts.push('💎 ' + r.gems);
+    return parts.join('  ');
+}
+function costText(c) {            // 호출부가 전부 innerHTML 이다
+    if (c.coins) return COIN_ICO + ' ' + c.coins;
     if (c.gems) return '💎 ' + c.gems;
     return 'FREE';
 }
@@ -1460,7 +1473,7 @@ function renderShop() {
             card.style.alignItems = 'center';
             card.style.textAlign = 'left';
             const grantTxt = [
-                p.grant.coins ? '🪙 ' + p.grant.coins.toLocaleString() : '',
+                p.grant.coins ? COIN_ICO + ' ' + p.grant.coins.toLocaleString() : '',
                 p.grant.gems ? '💎 ' + p.grant.gems : '',
                 p.grant.skin ? '🎨 ' + p.grant.skin + ' skin' : '',
             ].filter(Boolean).join('  ');
@@ -1521,7 +1534,7 @@ function renderMissions() {
         const row = document.createElement('div');
         row.className = 'mission';
         row.innerHTML =
-            `<div class="mtop"><span class="mname">${def.text}</span><span class="mrew">${rewardText(def.reward)}</span></div>` +
+            `<div class="mtop"><span class="mname">${def.text}</span><span class="mrew">${rewardHtml(def.reward)}</span></div>` +
             `<div class="pbar"><div style="width:${pct}%"></div></div>` +
             `<div class="pmeta"><span class="pcount">${Math.min(entry.progress, def.target)} / ${def.target}</span>` +
             (entry.claimed
@@ -1548,7 +1561,7 @@ function renderDaily() {
         const isToday = !claimedToday && dayNum === nextStreak;
         const cell = document.createElement('div');
         cell.className = 'day' + (i === 6 ? ' bonus' : '') + (isClaimed ? ' claimed' : '') + (isToday ? ' today' : '');
-        cell.innerHTML = `<div class="dlabel">DAY ${dayNum}</div><div class="dval">${rewardText(r)}</div>`;
+        cell.innerHTML = `<div class="dlabel">DAY ${dayNum}</div><div class="dval">${rewardHtml(r)}</div>`;
         grid.appendChild(cell);
     }
     const btn = $('daily-claim');
@@ -2529,7 +2542,7 @@ async function renderXpromoGames() {
         `<div class="setting-row xpromo-game" data-id="${escapeHtml(g.id)}" data-link="${escapeHtml(g.link)}" data-install="${escapeHtml(g.installId || '')}" style="cursor:pointer">` +
             `<span style="display:flex;align-items:center;gap:10px;min-width:0"><span style="font-size:20px">${g.emoji || '🎮'}</span><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(g.name || g.id)}</span></span>` +
             (g.rewarded && g.reward > 0
-                ? `<span style="color:var(--gold);font-size:13px;font-weight:800;flex-shrink:0">+${g.reward} 🪙</span>`
+                ? `<span style="color:var(--gold);font-size:13px;font-weight:800;flex-shrink:0">+${g.reward} ${COIN_ICO}</span>`
                 : `<span style="color:#8a8aa8;font-size:16px;flex-shrink:0">›</span>`) +
         `</div>`
     ).join('');
@@ -2554,7 +2567,7 @@ function buildXpromoCard(game) {
     card.id = 'xpromo-card';
     card.innerHTML =
         `<div class="xp-x" id="xpromo-x">✕</div>` +
-        (game.rewarded && game.reward > 0 ? `<div class="xp-reward">+${game.reward} 🪙</div>` : '') +
+        (game.rewarded && game.reward > 0 ? `<div class="xp-reward">+${game.reward} ${COIN_ICO}</div>` : '') +
         `<div class="xp-emoji">${game.emoji || '🎮'}</div>` +
         `<div class="xp-name">${escapeHtml(game.name || game.id)}</div>`;
     menu.appendChild(card);

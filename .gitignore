@@ -15,3 +15,7 @@ Mobile/iOS/**/*.xcuserstate
 Mobile/iOS/build/
 Mobile/iOS/DerivedData/
 Mobile/iOS/.build/
+
+# 스토어 스크린샷 — 원본 프레임(docs/store/frames)만 커밋한다.
+# out/ 은 tools/store_screenshots.py 로 언제든 재생성되므로 제외.
+docs/store/out/
