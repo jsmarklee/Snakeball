@@ -5,13 +5,19 @@
 
 ```bash
 node tools/make-store-screenshots.mjs docs/store/frames docs/store/out
+python3 tools/store_feature_graphic.py docs/store/frames docs/store/out
 ```
 
 | | |
 |---|---|
 | 원본 프레임 | `docs/store/frames/FRAME-{1..5}-*.png` (1320×2868, 커밋됨) |
 | 생성 결과 | `docs/store/out/<규격>/<언어>/01..05.png` (gitignore — 위 명령으로 재생성) |
+| Play 그래픽 이미지 | `docs/store/out/play-feature-graphic/<언어>.png` (1024×500) |
 | 합성기 | [tools/store_screenshots.py](../tools/store_screenshots.py) (카피·순서·레이아웃이 전부 여기 있다) |
+| 그래픽 이미지 | [tools/store_feature_graphic.py](../tools/store_feature_graphic.py) |
+
+**iPad 는 필요 없다.** `Mobile/iOS/project.yml` 의 `TARGETED_DEVICE_FAMILY: "1"` — iPhone 전용
+빌드라 App Store 가 iPad 스크린샷을 요구하지 않는다. 6.9" 한 세트로 6.5"·6.1" 까지 자동 대체된다.
 
 ## 언어 코드 ↔ 스토어 로케일
 
@@ -33,6 +39,7 @@ node tools/make-store-screenshots.mjs docs/store/frames docs/store/out
 |---|---|---|
 | `appstore-6.9` | 1320×2868 | App Store 6.9"(iPhone 17 Pro Max 등). 이 한 세트로 6.5"·6.1" 까지 자동 대체된다 |
 | `play-phone` | 1080×1920 | Google Play 휴대전화. Play 의 9:16 비율 요건에 맞춘 것 |
+| `play-feature-graphic` | 1024×500 | Google Play **필수**. 없으면 등록 자체가 안 된다. App Store 에는 대응 필드 없음 |
 
 ## 프레임 5장 (순서 = 스토어 노출 순서)
 
