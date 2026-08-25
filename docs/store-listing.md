@@ -514,12 +514,17 @@ Snakeball：ボール転がし3Dラン
 
 # 🇹🇼🇭🇰 繁體中文 (zh-Hant · 台灣/香港 공용)
 
+> **이름의 `霓虹方塊跑酷` 부분은 `霓虹滾球跑酷` 에서 바꾼 것이다.** `滾球` 는 대만·홍콩에서
+> ① 페탕크/보체 정식 종목명이고 ② `滾球盤` = 스포츠 라이브 베팅 용어다. 4+ 게임 이름에
+> 넣을 말이 아니다. `方塊`(큐브)는 게임에 실제로 나오고 현지 캐주얼 유저가 검색하는 말이다.
+> 글자수는 그대로 16자. **대만·홍콩 화자에게 1회 확인은 여전히 필요하다.**
+
 ## Apple App Store
 
 ### Name — 16자 / 30
 
 ```
-Snakeball 霓虹滾球跑酷
+Snakeball 霓虹方塊跑酷
 ```
 
 ### Subtitle — 25자 / 30
@@ -598,7 +603,7 @@ Classic、Mint、Lime、Coral、Gold、Ruby、Galaxy、Beach Ball、Basketball�
 ### 앱 이름 — 16자 / 30
 
 ```
-Snakeball 霓虹滾球跑酷
+Snakeball 霓虹方塊跑酷
 ```
 
 ### 간단한 설명 — 62자 / 80
@@ -673,8 +678,8 @@ Classic、Mint、Lime、Coral、Gold、Ruby、Galaxy、Beach Ball、Basketball�
 - [ ] `en` Play 앱 이름 — `Snakeball: Neon Cube Run` (Apple 과 일부러 다름 — 위 주석 참고)
 - [ ] `ja` Apple Name — `Snakeball：ボール転がしアクション` (전각 콜론 유지)
 - [ ] `ja` Play 앱 이름 — `Snakeball：ボール転がし3Dラン`
-- [ ] `zh-Hant` Apple Name — `Snakeball 霓虹滾球跑酷` (zh-TW/zh-HK 두 로케일 모두)
-- [ ] `zh-Hant` Play 앱 이름 — `Snakeball 霓虹滾球跑酷` (zh-TW/zh-HK 두 언어 모두)
+- [ ] `zh-Hant` Apple Name — `Snakeball 霓虹方塊跑酷` (zh-TW/zh-HK 두 로케일 모두)
+- [ ] `zh-Hant` Play 앱 이름 — `Snakeball 霓虹方塊跑酷` (zh-TW/zh-HK 두 언어 모두)
 - [ ] `ko` Toss 앱 이름 — `스네이크볼` → 변경 시 `/Users/mark/repos/Snakeball/granite.config.ts:6` 의 `displayName` 도 **같이** 바꿔야 한다
 
 이름 교체 시 같이 확인할 것:

@@ -151,8 +151,8 @@ four `@JavascriptInterface` methods: `vibrate`, `showRewardedAd` (AdMob rewarded
 `purchase` (Play Billing, consumables only), `getDeviceId` (ANDROID_ID). No
 interstitial/restore (the game dropped them). SKUs match `STORE` (coins/gems).
 AdMob ids are Google **test** ids (placeholders). See `Mobile/Android/README.md`
-for the pre-launch checklist (real AdMob ids, Play Console IAP, signing keystore,
-**replace placeholder launcher icon** — currently MinefieldSweeper's).
+for the pre-launch checklist (real AdMob ids, Play Console IAP, signing keystore).
+런처 아이콘은 2026-07-28 에 교체 완료 — MinefieldSweeper 플레이스홀더가 아니다(해시 대조 확인).
 
 ```bash
 cd Mobile/Android && ./gradlew assembleDebug   # needs Android SDK

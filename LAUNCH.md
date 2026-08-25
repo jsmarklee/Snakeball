@@ -40,7 +40,11 @@
 - **stableId 캡처** — 런치 시 `getDeviceId` 브리지로 IDFV/ANDROID_ID 캡처 → `recoverAccount`로 재설치 시 신원 유지(+유니크 유저 지표 기반).
 - **이모지 폰트 폴백** — `font-family`에 Apple/Segoe/Noto Color Emoji 추가(Android WebView tofu 방지).
 - **onTap** — 햅틱+throttle 래퍼를 메뉴/설정/상점/모달 버튼에 적용.
-- **minInstances:1** — `startRun`/`submitScore` 콜드스타트 제거. ⚠️ **always-on 인스턴스라 과금 발생**(원치 않으면 빼기). 배포 시 `--force` 필요할 수 있음.
+- ~~**minInstances:1**~~ — **되돌렸다(현재 0).** 플레이 없이 always-on 인스턴스만으로 과금이 나온 전례가 있어
+  `startRun`/`submitScore`/`claimCrossPromoReward` 모두 `minInstances: 0` 이다.
+  **2026-08-25 실측 확인**: 배포된 Cloud Run 서비스 14개 전부 `minScale=0`(always-on 없음).
+  확인법: `gcloud run services list --project=snakeball-game --format="value(metadata.name, spec.template.metadata.annotations['autoscaling.knative.dev/minScale'])"`
+  콜드스타트는 안티치트 `BASE_BUFFER` 를 200 으로 올려 흡수했다(`functions/index.js:62`).
 - **iOS 하드닝**(`WebView.swift`, **재빌드 필요**): `window.prompt` 텍스트입력 패널(없으면 닉네임/복구 입력이 조용히 무시됨), 오프라인 재시도 오버레이(2.1 리젝 방지), content-process 종료 시 리로드, **빌드타입 광고유닛**(Debug/TestFlight=테스트, App Store만 실광고 — self-click 정지 예방).
 
 **의도적 미적용 (Snakeball 설계상 N/A 또는 보류):**
@@ -64,6 +68,9 @@
 ### A. 게임 제목 확정 ⚠️ (먼저)
 - **후보와 근거는 [docs/app-name-candidates.md](docs/app-name-candidates.md) 로 옮겼다.**
   1위 추천 `Cubeball / 큐브볼`.
+- **`Balldozer / 볼도저` 도 검증 통과** (2026-08-25) — App Store 4개 스토어프런트·Play 4개 지역
+  모두 충돌 없음. `-dozer` 의 코인푸셔·중장비 연상만 감수하면 된다(문서 §6).
+- ~~Rolldozer~~ — 원어민 4명 전원이 문제 지적. 한국어 '롤'=LoL, `dozer`=코인푸셔(대만 11/14). 문서 §6.
 - ~~Numbash / 넘배시~~ — **탈락.** App Store 에 `NumBash: Math Run Battle`(2026-08-07,
   Games, 러너 장르)이 우리가 노리는 4개 로케일 전부에 이미 등록돼 있다. 실측 근거는 위 문서 §2.
 - ~~Snakeball 유지~~ — 권하지 않음. 뱀 게임이 아닌데 '스네이크'로 유입되면 잘못된 설치가 된다.
@@ -71,9 +78,11 @@
 - 정하면 내가 메뉴 타이틀·iOS/Android 표시명·`granite.config.ts` displayName에 반영.
   **메뉴 타이틀이 스크린샷 5번에 찍혀 있어 그 한 장은 재촬영이 필요하다**(1~4번은 그대로).
 
-### B. 앱 아이콘
-- 내가 만든 네온볼 플레이스홀더가 있음(`/tmp/sb_icon.png`) — **그대로 쓸지(A) / 손볼지(B) / 직접 디자인(C)** 결정.
-- 정해지면 내가 `public/app-icon.png`(Toss 검수용, 현재 404)·Android `mipmap`·iOS 에셋에 넣고 배포.
+### B. 앱 아이콘 — ✅ 완료 (2026-07-28, 2026-08-25 실측 재확인)
+형이 준 `docs/icon-src.png` 기준으로 3플랫폼 전부 반영·배포됨. **남은 액션 없음.**
+- iOS `Assets.xcassets/AppIcon.appiconset/icon-1024.png`
+- Android `mipmap-*`(`ic_launcher` / `_round` / `_foreground` / `_monochrome`) — MinefieldSweeper 플레이스홀더 **아님**(해시 대조 확인)
+- Toss 검수용 `static/app-icon.png` → `https://snakeball-game.web.app/app-icon.png` **200 확인**
 
 ### C. Firebase 시크릿 8개 (IAP 검증 켜기)
 콘솔에서 발급받아 나한테 주거나, 직접 `firebase functions:secrets:set <NAME>` 실행:
@@ -101,7 +110,9 @@
 - **Android**: 릴리스 **키스토어** 생성 → `Mobile/Android/keystore.properties`(`.example` 참고) 채우기
 
 ### H. Toss 콘솔
-- 앱 등록 — 슬러그 `snakeball` (⚠️ 변경 불가, A 먼저 결정)
+- 앱 등록 — 슬러그 (⚠️ **등록 후 영구 변경 불가**, A 먼저 결정).
+  `granite.config.ts` 의 `appName` 과 반드시 같아야 한다. 현재 값은 `snakeball`.
+  이름을 `Balldozer` 로 가면 슬러그는 `balldozer` — **콘솔에서 선점 가능한지부터 확인할 것.**
 - `npx ait token add --api-key <콘솔키>`
 - 콘솔에서 받은 **광고 ad group id** → 내가 `index.html`의 `TOSS_AD_GROUP_ID`에 입력
 - IAP SKU 4종 콘솔 등록 (D)
