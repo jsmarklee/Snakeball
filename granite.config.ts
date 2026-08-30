@@ -1,9 +1,9 @@
 import { defineConfig } from '@apps-in-toss/web-framework/config';
 
 export default defineConfig({
-  appName: 'snakeball',
+  appName: 'balldozer',
   brand: {
-    displayName: '스네이크볼',
+    displayName: '볼도저',
     primaryColor: '#63f8cf',
     // Toss requires an absolute, publicly-reachable icon URL. Replace with the
     // hosted app icon once the Firebase Hosting site is live.

@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">Snakeball</string>
+    <string name="app_name">Balldozer</string>
 
     <!-- Play Games Services. USER: replace these placeholders with the values from the
          Google Play Console (Play Games Services > Configuration / Leaderboards).

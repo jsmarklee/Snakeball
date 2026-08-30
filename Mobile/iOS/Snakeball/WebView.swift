@@ -168,7 +168,7 @@ struct WebView: UIViewRepresentable {
                         let mail = MFMailComposeViewController()
                         mail.mailComposeDelegate = self
                         mail.setToRecipients([to])
-                        mail.setSubject("Snakeball Support")
+                        mail.setSubject("Balldozer Support")
                         rootVC.present(mail, animated: true)
                     } else if let url = URL(string: "mailto:\(to)") {
                         UIApplication.shared.open(url)

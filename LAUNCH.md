@@ -65,20 +65,21 @@
 
 ## 🔵 형이 해야 하는 것
 
-### A. 게임 제목 확정 ⚠️ (먼저)
-- **후보와 근거는 [docs/app-name-candidates.md](docs/app-name-candidates.md) 로 옮겼다.**
-  1위 추천 `Cubeball / 큐브볼`.
-- ⚠️ **`Balldozer` 단독은 ASC 에서 막혔다(2026-08-25)** — 미출시 앱이 이름을 예약 중.
-  스토어 검색에는 안 나오지만 저장이 거부된다. **공개 검색으로는 가용성을 확인할 수 없다.**
-  시도 순서와 대안은 [docs/app-name-candidates.md §7](docs/app-name-candidates.md).
-  → 우선 `Balldozer: Neon Ball Run` 로 재시도(전체 문자열이 다르면 대개 저장된다).
-- ~~Rolldozer~~ — 원어민 4명 전원이 문제 지적. 한국어 '롤'=LoL, `dozer`=코인푸셔(대만 11/14). 문서 §6.
-- ~~Numbash / 넘배시~~ — **탈락.** App Store 에 `NumBash: Math Run Battle`(2026-08-07,
-  Games, 러너 장르)이 우리가 노리는 4개 로케일 전부에 이미 등록돼 있다. 실측 근거는 위 문서 §2.
-- ~~Snakeball 유지~~ — 권하지 않음. 뱀 게임이 아닌데 '스네이크'로 유입되면 잘못된 설치가 된다.
-- **이게 먼저인 이유**: Toss 콘솔 슬러그(H)는 **등록 후 변경 불가**라 제목을 먼저 정해야 함. 스토어 표시명/아이콘에도 영향.
-- 정하면 내가 메뉴 타이틀·iOS/Android 표시명·`granite.config.ts` displayName에 반영.
-  **메뉴 타이틀이 스크린샷 5번에 찍혀 있어 그 한 장은 재촬영이 필요하다**(1~4번은 그대로).
+### A. 게임 제목 — ✅ 확정 (2026-08-25)
+
+**`Balldozer` / 볼도저 / Toss 슬러그 `balldozer`.**
+en Apple Name `Balldozer: Neon Ball Run` — **ASC 저장 확인됨.**
+
+> 한 번 거부됐다가 통과했다. 원인은 남의 선점이 아니라 **자기 레코드**였다 — ASC 에
+> `볼도저` 앱 레코드(Prepare for Submission)가 이미 있었고 세션 캐시가 남아 있었다.
+> 완전히 로그아웃 후 재진입하니 저장됨. 경위·교훈: [docs/app-name-candidates.md §7](docs/app-name-candidates.md) · LessonLearned `30 §14`.
+
+**반영 완료** — 코드 8곳(`granite.config.ts` appName/displayName, `index.html` title/h1,
+iOS `Info.plist` 2곳 + `WebView.swift`, Android `strings.xml`, `static/{terms,privacy}.html`),
+스토어 문구 9곳(`docs/store-listing.md`), 메뉴 스크린샷 재촬영 + 44장 재생성. 웹 배포됨.
+
+⚠️ **Toss 슬러그 `balldozer` 는 아직 콘솔에 등록하지 않았다.** 등록 후 영구 불변이므로
+H 항목에서 선점 가능 여부부터 확인할 것.
 
 ### B. 앱 아이콘 — ✅ 완료 (2026-07-28, 2026-08-25 실측 재확인)
 형이 준 `docs/icon-src.png` 기준으로 3플랫폼 전부 반영·배포됨. **남은 액션 없음.**

@@ -1,4 +1,4 @@
-# Snakeball 스토어 등록 문구 — 최종본 (4개 언어)
+# Balldozer 스토어 등록 문구 — 최종본 (4개 언어)
 
 **작성 2026-08-25 · 검수자 지적 반영 완료 · 코드(`index.html`, `functions/`) 대조 검증 완료**
 
@@ -9,9 +9,15 @@
 - Apple Keywords 는 **쉼표만, 공백 0개**다. 편집기가 공백을 넣지 않도록 주의.
 - 줄바꿈이 있는 필드(Description / What's New)는 빈 줄까지 그대로 살려야 한다.
 
-## ⚠️ 앱 이름은 아직 미확정이다
+## ✅ 앱 이름 확정 (2026-08-25)
 
-본문 전체가 **"Snakeball" 을 자리표시자로** 쓴다. 본문 카피는 어디에서도 이름의 뜻(뱀/스네이크/이어짐)에 기대지 않으므로, 이름이 확정되면 **이름 필드만 바꾸면 되고 본문은 손댈 필요가 없다.** 바꿔야 하는 자리는 맨 아래 체크리스트에 모아 뒀다.
+**`Balldozer` / 볼도저 / Toss 슬러그 `balldozer`.**
+en Apple Name `Balldozer: Neon Ball Run` 은 App Store Connect 에 **저장 확인됨**.
+
+> 저장이 한 번 거부됐다가 통과했다. 원인은 남의 선점이 아니라 **자기 레코드**였다 —
+> ASC 에 `볼도저` 앱 레코드(Prepare for Submission)가 이미 있었고, 세션 캐시가 남아
+> 자기 이름을 자기가 못 쓰는 상태였다. 완전히 로그아웃 후 재진입하니 저장됐다.
+> 자세한 경위와 교훈: [app-name-candidates.md §7](app-name-candidates.md) · LessonLearned `30 §14`.
 
 ## 4개 언어 공통 사실 (교차 일관성 기준값)
 
@@ -53,7 +59,7 @@
 ### Name — 19자 / 30
 
 ```
-Snakeball: 볼 굴리기 러너
+Balldozer: 볼 굴리기 러너
 ```
 
 ### Subtitle — 25자 / 30
@@ -131,7 +137,7 @@ Snakeball: 볼 굴리기 러너
 ### 앱 이름 — 19자 / 30
 
 ```
-Snakeball: 볼 굴리기 러너
+Balldozer: 볼 굴리기 러너
 ```
 
 ### 간단한 설명 — 66자 / 80
@@ -177,10 +183,10 @@ Snakeball: 볼 굴리기 러너
 
 ## Apps in Toss
 
-### 앱 이름 — 5자 (`granite.config.ts` displayName 과 일치 확인함)
+### 앱 이름 — 3자 (`granite.config.ts` displayName 과 일치 확인함)
 
 ```
-스네이크볼
+볼도저
 ```
 
 ### 한 줄 소개 — 32자
@@ -215,7 +221,7 @@ Snakeball: 볼 굴리기 러너
 ### Name — 24자 / 30
 
 ```
-Snakeball: Neon Ball Run
+Balldozer: Neon Ball Run
 ```
 
 ### Subtitle — 28자 / 30
@@ -236,7 +242,7 @@ Roll a growing ball. Break numbered cubes only when your count beats the number.
 3d,rolling,crowd,dodge,swipe,combo,jump,lane,dash,rush,arcade,casual,hyper,reflex,stack,obstacle
 ```
 
-> 여유 4자. 앱 이름이 `Snakeball` 로 확정되면 Apple 은 이를 한 토큰으로만 색인하므로 `,snake`(6자)를 넣을 자리가 없다 — 넣으려면 `obstacle` 대신 교체할 것.
+> 여유 4자. 앱 이름이 `Balldozer` 로 확정되면 Apple 은 이를 한 토큰으로만 색인하므로 `,snake`(6자)를 넣을 자리가 없다 — 넣으려면 `obstacle` 대신 교체할 것.
 
 ### Description — 2,142자 / 4,000
 
@@ -282,10 +288,10 @@ Found something broken or unfair? Tell us. We read everything and we ship fast.
 ### 앱 이름 — 24자 / 30
 
 ```
-Snakeball: Neon Cube Run
+Balldozer: Neon Cube Run
 ```
 
-> Apple 과 **일부러 다르다.** Play 는 부분문자열 매칭이라 `Snakeball` 안의 `ball` 이 이미 잡히므로 `Ball` 반복은 스팸 신호만 되고 얻는 게 없다. 그 자리를 `Cube` 로 바꿔 핵심 명사를 하나 더 색인시킨다. Apple 은 `Snakeball` 을 통짜 한 토큰으로 색인하므로 `Ball` 을 남기는 편이 유리하다.
+> Apple 과 **일부러 다르다.** Play 는 부분문자열 매칭이라 `Balldozer` 안의 `ball` 이 이미 잡히므로 `Ball` 반복은 스팸 신호만 되고 얻는 게 없다. 그 자리를 `Cube` 로 바꿔 핵심 명사를 하나 더 색인시킨다. Apple 은 `Balldozer` 을 통짜 한 토큰으로 색인하므로 `Ball` 을 남기는 편이 유리하다.
 
 ### 간단한 설명 — 77자 / 80
 
@@ -344,7 +350,7 @@ Free to play with four consumable in-app purchases: 5,000 coins, 30,000 coins, 5
 ### Name — 21자 / 30
 
 ```
-Snakeball：ボール転がしアクション
+Balldozer：ボール転がしアクション
 ```
 
 ### Subtitle — 18자 / 30
@@ -442,7 +448,7 @@ Snakeball：ボール転がしアクション
 ### 앱 이름 — 20자 / 30
 
 ```
-Snakeball：ボール転がし3Dラン
+Balldozer：ボール転がし3Dラン
 ```
 
 ### 간단한 설명 — 64자 / 80
@@ -524,7 +530,7 @@ Snakeball：ボール転がし3Dラン
 ### Name — 16자 / 30
 
 ```
-Snakeball 霓虹方塊跑酷
+Balldozer 霓虹方塊跑酷
 ```
 
 ### Subtitle — 25자 / 30
@@ -603,7 +609,7 @@ Classic、Mint、Lime、Coral、Gold、Ruby、Galaxy、Beach Ball、Basketball�
 ### 앱 이름 — 16자 / 30
 
 ```
-Snakeball 霓虹方塊跑酷
+Balldozer 霓虹方塊跑酷
 ```
 
 ### 간단한 설명 — 62자 / 80
@@ -672,21 +678,21 @@ Classic、Mint、Lime、Coral、Gold、Ruby、Galaxy、Beach Ball、Basketball�
 
 본문 카피는 어디에서도 이름의 뜻에 기대지 않는다. 아래 **9곳만** 교체하면 끝난다.
 
-- [ ] `ko` Apple Name — `Snakeball: 볼 굴리기 러너`
-- [ ] `ko` Play 앱 이름 — `Snakeball: 볼 굴리기 러너`
-- [ ] `en` Apple Name — `Snakeball: Neon Ball Run`
-- [ ] `en` Play 앱 이름 — `Snakeball: Neon Cube Run` (Apple 과 일부러 다름 — 위 주석 참고)
-- [ ] `ja` Apple Name — `Snakeball：ボール転がしアクション` (전각 콜론 유지)
-- [ ] `ja` Play 앱 이름 — `Snakeball：ボール転がし3Dラン`
-- [ ] `zh-Hant` Apple Name — `Snakeball 霓虹方塊跑酷` (zh-TW/zh-HK 두 로케일 모두)
-- [ ] `zh-Hant` Play 앱 이름 — `Snakeball 霓虹方塊跑酷` (zh-TW/zh-HK 두 언어 모두)
-- [ ] `ko` Toss 앱 이름 — `스네이크볼` → 변경 시 `/Users/mark/repos/Snakeball/granite.config.ts:6` 의 `displayName` 도 **같이** 바꿔야 한다
+- [ ] `ko` Apple Name — `Balldozer: 볼 굴리기 러너`
+- [ ] `ko` Play 앱 이름 — `Balldozer: 볼 굴리기 러너`
+- [ ] `en` Apple Name — `Balldozer: Neon Ball Run`
+- [ ] `en` Play 앱 이름 — `Balldozer: Neon Cube Run` (Apple 과 일부러 다름 — 위 주석 참고)
+- [ ] `ja` Apple Name — `Balldozer：ボール転がしアクション` (전각 콜론 유지)
+- [ ] `ja` Play 앱 이름 — `Balldozer：ボール転がし3Dラン`
+- [ ] `zh-Hant` Apple Name — `Balldozer 霓虹方塊跑酷` (zh-TW/zh-HK 두 로케일 모두)
+- [ ] `zh-Hant` Play 앱 이름 — `Balldozer 霓虹方塊跑酷` (zh-TW/zh-HK 두 언어 모두)
+- [ ] `ko` Toss 앱 이름 — `볼도저` → 변경 시 `/Users/mark/repos/Balldozer/granite.config.ts:6` 의 `displayName` 도 **같이** 바꿔야 한다
 
 이름 교체 시 같이 확인할 것:
 
 - [ ] Apple **Keywords 재계산** — Name/Subtitle 에 들어간 단어는 키워드에서 빼야 한다. 새 이름에 이미 있는 토큰이 키워드에 남아 있지 않은지 확인(en 은 여유 4자, ko 4자, ja 3자, zh 4자밖에 없다).
 - [ ] `en` Apple Subtitle 은 28/30 이라 여유가 2자뿐이다. 이름이 바뀌어 Subtitle 로 키워드를 옮겨야 하면 재작성 필요.
-- [ ] 앱 이름이 확정되면 `en` Apple Keywords 에 `snake` 추가 검토(Apple 은 `Snakeball` 을 통짜 한 토큰으로만 색인한다).
+- [ ] 앱 이름이 확정되면 `en` Apple Keywords 에 `snake` 추가 검토(Apple 은 `Balldozer` 을 통짜 한 토큰으로만 색인한다).
 
 # 밸런싱/설정을 바꾸면 같이 고쳐야 하는 숫자
 
