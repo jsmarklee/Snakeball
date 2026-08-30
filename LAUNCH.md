@@ -68,8 +68,10 @@
 ### A. 게임 제목 확정 ⚠️ (먼저)
 - **후보와 근거는 [docs/app-name-candidates.md](docs/app-name-candidates.md) 로 옮겼다.**
   1위 추천 `Cubeball / 큐브볼`.
-- **`Balldozer / 볼도저` 도 검증 통과** (2026-08-25) — App Store 4개 스토어프런트·Play 4개 지역
-  모두 충돌 없음. `-dozer` 의 코인푸셔·중장비 연상만 감수하면 된다(문서 §6).
+- ⚠️ **`Balldozer` 단독은 ASC 에서 막혔다(2026-08-25)** — 미출시 앱이 이름을 예약 중.
+  스토어 검색에는 안 나오지만 저장이 거부된다. **공개 검색으로는 가용성을 확인할 수 없다.**
+  시도 순서와 대안은 [docs/app-name-candidates.md §7](docs/app-name-candidates.md).
+  → 우선 `Balldozer: Neon Ball Run` 로 재시도(전체 문자열이 다르면 대개 저장된다).
 - ~~Rolldozer~~ — 원어민 4명 전원이 문제 지적. 한국어 '롤'=LoL, `dozer`=코인푸셔(대만 11/14). 문서 §6.
 - ~~Numbash / 넘배시~~ — **탈락.** App Store 에 `NumBash: Math Run Battle`(2026-08-07,
   Games, 러너 장르)이 우리가 노리는 4개 로케일 전부에 이미 등록돼 있다. 실측 근거는 위 문서 §2.

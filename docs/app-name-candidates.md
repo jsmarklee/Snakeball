@@ -156,6 +156,42 @@ Excavator Simulator · Realistic Excavator Dozer 가 줄줄이 나온다.
 
 ---
 
+## 7. ⚠️ 2026-08-25 — `Balldozer` 가 ASC 에서 막혔다
+
+App Store Connect 가 이렇게 거부했다:
+
+> English (U.S.) Name couldn't be saved because the app name you entered is already being used.
+
+**그런데 App Store 에서 `Balldozer` 를 검색하면 아무것도 안 나온다.** 모순이 아니라 정상이다 —
+누군가 ASC 에 앱 레코드만 만들어 두고 출시하지 않은 채 이름을 잡고 있는 것이다.
+**이 예약은 어떤 공개 경로로도 조회되지 않는다.** §3 의 iTunes Search API 조회는 *게시된* 앱만
+보므로, 이 문서의 "접두 일치 없음" 은 **쓸 수 있다는 증명이 아니었다.** 방법의 한계다.
+
+두 번째 에러(`Subtitle couldn't be saved because another field in this localization is invalid`)는
+별개 문제가 아니라 Name 실패의 연쇄다. Name 만 통과하면 같이 풀린다.
+
+### 시도 순서 (ASC 에 위에서부터 입력)
+
+ASC 고유성은 **이름 전체 문자열** 기준이라 접미가 붙으면 다른 이름이다.
+아래는 전부 공개 스토어에 없음을 확인했지만, **가용성의 증거는 ASC 저장뿐이다.**
+
+| # | 입력할 이름 | 자수 | 비고 |
+|---|---|---|---|
+| 1 | `Balldozer: Neon Ball Run` | 24/30 | **이 문서의 원래 값.** 좋아하는 이름을 그대로 유지 |
+| 2 | `Balldozer 3D` | 12/30 | 짧게 가고 싶으면 |
+| 3 | `Cubeball: Neon Ball Run` | 23/30 | 1위 추천이었던 이름 |
+| 4 | `Countball: Neon Ball Run` | 24/30 | 받아쓰기·적합도 만점 |
+| 5 | `Ballnova: Neon Ball Run` | 23/30 | 상표 여지가 가장 넓음 |
+
+**저장되는 이름이 나올 때까지 코드를 건드리지 말 것.** 이름을 정하고 코드·문서·스크린샷을
+다 바꾼 뒤 ASC 에서 막히면 전부 되돌려야 한다. 순서는 **ASC 확정 → 그다음 반영**이다.
+Toss 슬러그는 영구 불변이므로 ASC 이름이 확정된 뒤에 잡는다.
+
+> 에러 메시지의 [claim 링크](http://www.apple.com/legal/internet-services/itunes/appnamenotices/)는
+> **내가 상표를 가진 경우**에 쓰는 것이지 남의 예약을 뺏는 일반 절차가 아니다.
+
+---
+
 ## 5. 결정 후 해야 할 일
 
 ### ⓪ 코드를 손대기 전에
