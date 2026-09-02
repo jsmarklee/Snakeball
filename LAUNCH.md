@@ -78,8 +78,8 @@ en Apple Name `Balldozer: Neon Ball Run` — **ASC 저장 확인됨.**
 iOS `Info.plist` 2곳 + `WebView.swift`, Android `strings.xml`, `static/{terms,privacy}.html`),
 스토어 문구 9곳(`docs/store-listing.md`), 메뉴 스크린샷 재촬영 + 44장 재생성. 웹 배포됨.
 
-⚠️ **Toss 슬러그 `balldozer` 는 아직 콘솔에 등록하지 않았다.** 등록 후 영구 불변이므로
-H 항목에서 선점 가능 여부부터 확인할 것.
+✅ **Toss 슬러그 `balldozer` 는 콘솔 draft 에 이미 잡혀 있다**(워크스페이스 13311, 2026-08-31).
+`granite.config.ts` 의 `appName` 과 일치 확인함 — 개명으로 깨진 것 없다. 나머지는 H 참고.
 
 ### B. 앱 아이콘 — ✅ 완료 (2026-07-28, 2026-08-25 실측 재확인)
 형이 준 `docs/icon-src.png` 기준으로 3플랫폼 전부 반영·배포됨. **남은 액션 없음.**
