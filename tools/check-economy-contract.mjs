@@ -116,6 +116,39 @@ if (!fb.hosting?.predeploy?.length)
 if (!pkg.scripts?.['check:economy'])
   fails.push('[3] package.json 에 check:economy 가 등록돼 있지 않다');
 
+// ── [4] Toss 상품 ID — 클라·서버·문서가 글자 하나까지 같은가 ────────────────────
+// 40자짜리 ID 가 세 곳에 흩어져 있다. 한 글자만 틀려도 **그 상품만** 조용히 실패하고,
+// 나머지 셋이 멀쩡하니 테스트에서 잘 안 드러난다. 콘솔이 발급한 값이라 사람이 옮겨 적는다.
+{
+  const srv = readFileSync(new URL('../functions/iapVerification.js', import.meta.url), 'utf8');
+  const readme = new URL('../docs/toss/README.md', import.meta.url);
+  const cli = Object.fromEntries(
+    [...html.matchAll(/'(coins\.\d+|gems\.\w+)':\s*'(ait\.[\w.]+)'/g)].map((m) => [m[1], m[2]]),
+  );
+  const server = Object.fromEntries(
+    [...srv.matchAll(/'(ait\.[\w.]+)':\s*'(coins\.\d+|gems\.\w+)'/g)].map((m) => [m[2], m[1]]),
+  );
+  // 아직 Toss 상품을 안 받은 시점(ID 0개)에는 이 검사를 건너뛴다 — 없는 걸 요구하지 않는다.
+  if (Object.keys(cli).length || Object.keys(server).length) {
+    if (Object.keys(cli).length !== 4 || Object.keys(server).length !== 4)
+      fails.push(`[4] Toss 상품 매핑이 클라 ${Object.keys(cli).length}개 / 서버 ${Object.keys(server).length}개 — 둘 다 4개여야 한다`);
+    for (const sku of new Set([...Object.keys(cli), ...Object.keys(server)]))
+      if (cli[sku] !== server[sku])
+        fails.push(`[4] Toss 상품 ID 불일치 ${sku} — 클라 ${cli[sku]} / 서버 ${server[sku]}`);
+    // 문서가 있으면 그것까지 대조한다(콘솔 값의 사본이라 셋이 같아야 한다)
+    let doc = '';
+    try { doc = readFileSync(readme, 'utf8'); } catch { /* 문서는 없을 수도 있다 */ }
+    if (doc) {
+      const table = Object.fromEntries(
+        [...doc.matchAll(/\|\s*`(coins\.\d+|gems\.\w+)`\s*\|\s*`(ait\.[\w.]+)`/g)].map((m) => [m[1], m[2]]),
+      );
+      for (const [sku, id] of Object.entries(cli))
+        if (table[sku] && table[sku] !== id)
+          fails.push(`[4] docs/toss/README.md 의 ${sku} 가 코드와 다르다 — 문서 ${table[sku]} / 코드 ${id}`);
+    }
+  }
+}
+
 console.log(
   `check:economy — 서버 공식 요소 ${Object.values(serverUses).filter(Boolean).length}개 대조 · ` +
   `실드 소비 ${consumeSites.length}곳 · 배포 훅 4개`,

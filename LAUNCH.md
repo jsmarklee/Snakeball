@@ -112,13 +112,28 @@ H 항목에서 선점 가능 여부부터 확인할 것.
 - **iOS**: Apple Developer 인증서 + 프로비저닝 프로파일 (App Store 배포용)
 - **Android**: 릴리스 **키스토어** 생성 → `Mobile/Android/keystore.properties`(`.example` 참고) 채우기
 
-### H. Toss 콘솔
-- 앱 등록 — 슬러그 (⚠️ **등록 후 영구 변경 불가**, A 먼저 결정).
-  `granite.config.ts` 의 `appName` 과 반드시 같아야 한다. 현재 값은 `snakeball`.
-  이름을 `Balldozer` 로 가면 슬러그는 `balldozer` — **콘솔에서 선점 가능한지부터 확인할 것.**
-- `npx ait token add --api-key <콘솔키>`
-- 콘솔에서 받은 **광고 ad group id** → 내가 `index.html`의 `TOSS_AD_GROUP_ID`에 입력
-- IAP SKU 4종 콘솔 등록 (D)
+### H. Toss 콘솔 — 🟡 draft 생성됨, **제출 미완료** (2026-08-31 기준)
+
+상세 기록은 [docs/toss/README.md](docs/toss/README.md). 요약:
+
+| | 상태 |
+|---|---|
+| 워크스페이스 `13311` · 앱 draft | ✅ 생성 |
+| 슬러그 `balldozer` / 표시명 `볼도저` | ✅ `granite.config.ts` 와 일치 확인 |
+| IAP 소비성 4종 (실제 Toss 상품 ID) | ✅ 생성+활성. 클라·서버·문서 3곳 ID 일치 확인(`check:economy [4]`) |
+| 아이콘 600×600 · 썸네일 1932×828 · 세로 스크린샷 3장 | ✅ draft 업로드 |
+| Toss 로그인 스코프(필수 이름만) · 파트너 약관 URL | ✅ 설정 |
+| `balldozer.ait` 아티팩트 | ✅ 빌드됨 (`deploymentId: 01a054b5-…`) — **배포 안 함** |
+| `ait token add` | ❌ **미실행** (토큰 흔적 없음) → `ait deploy` 불가 |
+| mTLS 인증서 | ❌ 미발급 |
+| 게임물 등급 심사 | ❌ 미신청 |
+
+**⚠️ 순서 의존성 — Toss 는 iOS 뒤에 온다.**
+게임물 등급 심사와 mTLS 발급이 **공개 App Store URL + Apple 자체등급분류 기록**을 요구한다.
+따라서 `I. 빌드 & 제출` 의 iOS 를 먼저 끝내야 Toss 제출을 이어갈 수 있다.
+남은 순서: **iOS 출시 → 등급 심사 → mTLS 발급 → Firebase functions 배포(C 시크릿) → `ait deploy`**.
+
+- 콘솔에서 받을 **광고 ad group id** → 주면 내가 `index.html` `TOSS_AD_GROUP_ID` 에 넣는다 (아직 미입력)
 
 ### I. 빌드 & 제출 (콘솔 작업 다 끝난 뒤)
 - **iOS**: `cd Mobile/iOS && xcodegen generate && open Snakeball.xcodeproj` → Archive → App Store Connect → TestFlight → 심사 제출
