@@ -213,6 +213,23 @@ canvas { display: block; width: 100%; height: 100%; }
     text-shadow: 0 0 12px rgba(255,210,63,0.7); display: none; pointer-events: none;
 }
 #combo-display .mult { font-size: 18px; }
+/* F1: 피버 충전 막대 — 쉬지 않고 10개 부수면 찬다 */
+#fever-charge {
+    position: absolute; top: calc(108px + env(safe-area-inset-top, 0px)); left: 50%; transform: translateX(-50%);
+    width: 120px; height: 6px; border-radius: 3px; background: rgba(255,255,255,0.12); overflow: hidden; pointer-events: none;
+}
+#fever-charge-bar { height: 100%; width: 0%; background: linear-gradient(90deg, #ff8a2a, #ff2d55, #ff3df0); transition: width 0.12s; }
+#fever-charge.full #fever-charge-bar { width: 100% !important; animation: feverPulse 0.25s infinite alternate; }
+@keyframes feverPulse { from { filter: brightness(1); } to { filter: brightness(1.8); } }
+/* F1: 스테이지/피버/신기록 배너 */
+#stage-banner {
+    position: absolute; top: 34%; left: 50%; transform: translate(-50%, -50%) scale(0.6); opacity: 0;
+    text-align: center; pointer-events: none; white-space: nowrap; transition: opacity 0.18s, transform 0.18s;
+}
+#stage-banner.show { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+#stage-banner .t { font-size: 44px; font-weight: 900; color: #fff; letter-spacing: 2px;
+    text-shadow: 0 0 18px var(--banner-glow, #63f8cf), 0 4px 0 rgba(0,0,0,0.5); }
+#stage-banner .s { font-size: 16px; font-weight: 800; letter-spacing: 4px; color: var(--banner-glow, #63f8cf); margin-top: 4px; }
 #run-coins {
     position: absolute; top: max(16px, env(safe-area-inset-top)); right: 16px;
     color: var(--gold); font-size: 18px; font-weight: 800; text-shadow: 0 2px 6px rgba(0,0,0,0.6);
@@ -486,6 +503,8 @@ canvas { display: block; width: 100%; height: 100%; }
         <div id="ball-count"></div>
         <div id="run-coins" style="display:none"><span class="coin-ico"></span> <span id="run-coins-amount">0</span></div>
         <div id="combo-display"></div>
+        <div id="fever-charge"><div id="fever-charge-bar"></div></div>
+        <div id="stage-banner"><div class="t"></div><div class="s"></div></div>
         <div id="mega-timer-wrap">
             <div id="mega-timer-bar"></div>
         </div>
@@ -2731,16 +2750,6 @@ const LANE_WIDTH = 1.0;
 const VISIBLE_DISTANCE = 80;
 const DESPAWN_DISTANCE = -5;
 
-// Cube colors (from Unity)
-const CUBE_COLORS = [
-    new THREE.Color(103/255, 176/255, 209/255),
-    new THREE.Color(74/255, 213/255, 133/255),
-    new THREE.Color(235/255, 200/255, 94/255),
-    new THREE.Color(232/255, 115/255, 82/255),
-    new THREE.Color(169/255, 101/255, 170/255),
-    new THREE.Color(103/255, 75/255, 255/255),
-];
-const IRON_CUBE_COLOR = new THREE.Color(0.6, 0.0, 0.0);
 
 // Cube HP ranges per type*3+level index (from cubecount.json)
 const CUBE_HP_RANGES = [
@@ -2952,11 +2961,45 @@ renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 document.body.prepend(renderer.domElement);
 
-// Lights
-const ambientLight = new THREE.AmbientLight(0x334466, 0.6);
+// ------------------------------------------------------------
+// STAGE PALETTES — 하늘/안개/차선/테두리만 바뀐다. 큐브 색은 "가성비" 신호라 고정.
+// 2026-11-21 F1: 조명이 r160 물리광 기준으로 어두워 흰 공이 검게 보였고, 단일 남색
+// 배경이 끝없이 이어져 1분을 달려도 화면이 같았다. 25초마다 팔레트를 돌린다.
+// ------------------------------------------------------------
+const STAGE_SECONDS = 25;
+const PALETTES = [
+    { name: 'NEON CITY', top: 0x0b0630, horizon: 0x7a1fa8, lane: 0x4be1ff, border: 0x63f8cf },
+    { name: 'SUNSET',    top: 0x1a0626, horizon: 0xff6a3d, lane: 0xffb347, border: 0xff4d8d },
+    { name: 'TOXIC',     top: 0x041a12, horizon: 0x2fbf4a, lane: 0xb6ff3d, border: 0xc56cf0 },
+    { name: 'GLACIER',   top: 0x06142e, horizon: 0x3d8bff, lane: 0xbfe9ff, border: 0x7df9ff },
+];
+const skyUniforms = {
+    topColor: { value: new THREE.Color(PALETTES[0].top) },
+    horizonColor: { value: new THREE.Color(PALETTES[0].horizon) },
+};
+const skyMesh = new THREE.Mesh(
+    new THREE.SphereGeometry(150, 24, 16),
+    new THREE.ShaderMaterial({
+        uniforms: skyUniforms, side: THREE.BackSide, depthWrite: false, fog: false,
+        vertexShader: 'varying vec3 vP; void main(){ vP = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
+        // 지평선에 얇은 띠로만 팔레트 색을 쓰고 위·아래는 어둡게 — 도로 양옆(지평선 아래)이
+        // 통째로 지평선 색으로 칠해지면 화면 절반이 원색 벽이 된다.
+        fragmentShader: 'uniform vec3 topColor; uniform vec3 horizonColor; varying vec3 vP;' +
+            'void main(){ float y = vP.y; vec3 c;' +
+            ' if (y >= 0.0) c = mix(horizonColor, topColor, pow(clamp(y * 3.0, 0.0, 1.0), 0.45));' +
+            ' else c = mix(topColor * 0.5, horizonColor * 0.8, exp(y * 9.0));' +
+            ' float glow = exp(-abs(y) * 16.0) * 0.45; gl_FragColor = vec4(c + horizonColor * glow, 1.0); }',
+    })
+);
+skyMesh.renderOrder = -1;
+scene.add(skyMesh);
+scene.fog.color.set(PALETTES[0].horizon).multiplyScalar(0.35);
+
+// Lights — r160 은 물리 단위 조명이라 예전 값(0.6/0.8/0.4)은 실제로 매우 어두웠다.
+const ambientLight = new THREE.AmbientLight(0x8890c0, 1.4);
 scene.add(ambientLight);
 
-const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+const dirLight = new THREE.DirectionalLight(0xffffff, 2.0);
 dirLight.position.set(5, 15, 10);
 dirLight.castShadow = true;
 dirLight.shadow.mapSize.set(1024, 1024);
@@ -2968,7 +3011,7 @@ dirLight.shadow.camera.top = 15;
 dirLight.shadow.camera.bottom = -15;
 scene.add(dirLight);
 
-const hemiLight = new THREE.HemisphereLight(0x3344aa, 0x112233, 0.4);
+const hemiLight = new THREE.HemisphereLight(0x6677dd, 0x221133, 0.9);
 scene.add(hemiLight);
 
 // Disco-skin light — a colored point light that only switches on for the Disco Ball
@@ -3010,14 +3053,14 @@ function makeRoadTexture() {
     return t;
 }
 const roadTexture = makeRoadTexture();
-// map 이 color 와 곱해지므로 색은 흰색으로 두고 텍스처가 노면 색을 온전히 결정하게 한다.
+// map 이 color 와 곱해진다. 조명을 r160 물리 단위에 맞게 올리면서 노면이 회색으로 떠 color 로 눌렀다(F1).
 const roadMaterial = new THREE.MeshStandardMaterial({
-    color: 0xffffff, map: roadTexture, roughness: 0.8, metalness: 0.1
+    color: 0x6a6f99, map: roadTexture, roughness: 0.8, metalness: 0.1   // F1: 조명을 올린 만큼 노면은 눌러 네온 대비 유지
 });
 // 세로 차선은 속도 단서가 아니라 **차선 조준용**이다. 기존 대비 1.25 는 사실상
 // 보이지 않았다 — 2.06 으로 올려 어느 차선에 있는지 읽히게 한다.
 const roadLineMaterial = new THREE.MeshStandardMaterial({
-    color: 0x454b78, roughness: 0.6, emissive: 0x111122, emissiveIntensity: 0.3
+    color: PALETTES[0].lane, roughness: 0.6, emissive: PALETTES[0].lane, emissiveIntensity: 0.45
 });
 const borderMaterial = new THREE.MeshStandardMaterial({
     color: 0x63f8cf, emissive: 0x63f8cf, emissiveIntensity: 0.5, roughness: 0.3
@@ -3028,8 +3071,10 @@ const ballMaterial = new THREE.MeshStandardMaterial({
 const megaBallMaterial = new THREE.MeshStandardMaterial({
     color: 0xffdd44, emissive: 0xffaa00, emissiveIntensity: 0.8, roughness: 0.1, metalness: 0.8
 });
+// 벽 = 네온 기둥. 예전 0x3a3a5e 는 어두운 도로 위에서 거의 안 보였다(벽은 막는 장애물이라
+// 가장 먼저 읽혀야 한다). 큐브의 "가성비 4색"과 겹치지 않는 마젠타.
 const wallMaterial = new THREE.MeshStandardMaterial({
-    color: 0x3a3a5e, roughness: 0.5, metalness: 0.3
+    color: 0xff3df0, emissive: 0xc21fb8, emissiveIntensity: 0.7, roughness: 0.35, metalness: 0.2
 });
 const freeBallItemMaterial = new THREE.MeshStandardMaterial({
     color: 0x4ad585, emissive: 0x4ad585, emissiveIntensity: 0.4, roughness: 0.2
@@ -3200,10 +3245,12 @@ for (const lx of [-1.5, -0.5, 0.5, 1.5]) {
 }
 
 // Border lines at x = +/- ROAD_WIDTH/2
+const borderMats = [];
 for (const bx of [-ROAD_WIDTH / 2, ROAD_WIDTH / 2]) {
     const geo = new THREE.PlaneGeometry(0.1, ROAD_LENGTH, 1, ROAD_SEGMENTS_Z);
     geo.rotateX(-Math.PI / 2);
     const mesh = new THREE.Mesh(geo, borderMaterial.clone());
+    borderMats.push(mesh.material);
     scene.add(mesh);
     roadStrips.push({ mesh, geo, baseX: bx, baseY: 0.005, basePositions: geo.attributes.position.array.slice() });
 }
@@ -3213,7 +3260,7 @@ const roadSegments = [];
 
 // Cubes pool
 const cubes = [];
-const CUBE_POOL_SIZE = 60;
+const CUBE_POOL_SIZE = 90;   // 5칸 스매시 줄이 자주 나오므로 60→90
 for (let i = 0; i < CUBE_POOL_SIZE; i++) {
     const mesh = new THREE.Mesh(cubeGeometry, new THREE.MeshStandardMaterial({
         roughness: 0.3, metalness: 0.2
@@ -3224,12 +3271,12 @@ for (let i = 0; i < CUBE_POOL_SIZE; i++) {
 
     // HP text sprite
     const canvas = document.createElement('canvas');
-    canvas.width = 64; canvas.height = 64;
+    canvas.width = 128; canvas.height = 128;
     const texture = new THREE.CanvasTexture(canvas);
     const spriteMat = new THREE.SpriteMaterial({ map: texture, transparent: true });
     const sprite = new THREE.Sprite(spriteMat);
-    sprite.scale.set(0.5, 0.5, 1);
-    sprite.position.y = 0.6;
+    sprite.scale.set(0.72, 0.72, 1);
+    sprite.position.y = 0.66;
     mesh.add(sprite);
 
     cubes.push({
@@ -3260,7 +3307,7 @@ const BAR_HURDLE = 'hurdle', BAR_OVERHEAD = 'overhead', BAR_LASER = 'laser', BAR
 const BAR_CLEAR_Y = 1.0;       // ball must be above this to clear a hurdle / laser
 const BAR_OVERHEAD_HIT_Y = 0.9; // ball above this smacks into an overhead bar
 const bars = [];
-const BAR_POOL_SIZE = 16;
+const BAR_POOL_SIZE = 28;   // 스매시 줄마다 게이트 빔 1개 → 16 에서 확대
 const barGeometry = new THREE.BoxGeometry(1, 1, 1);
 for (let i = 0; i < BAR_POOL_SIZE; i++) {
     const mesh = new THREE.Mesh(barGeometry, new THREE.MeshStandardMaterial({
@@ -3421,6 +3468,72 @@ const PATTERN_OVERHEAD = 17;      // full-width high bar — must stay GROUNDED
 const PATTERN_SWEEPER = 18;       // bar sliding across lanes — time the crossing
 const PATTERN_LASER = 19;         // blinking full-width beam — deadly when lit
 const PATTERN_CASCADE = 20;       // chained hazards, the late-game killer
+const PATTERN_SMASH_ROW = 21;     // 5칸 꽉 찬 줄 — "무엇을 부술지" 고르는 핵심 박자 (F1)
+
+let nonCollectiblePatternCount = 0;
+let smashRowSeq = 0;
+let passedRowId = 0;
+let lastPatternWasBar = false;
+const ROW_MERCY_DIST = 30;   // 줄이 이 거리 안에 들어왔을 때 살 칸이 없으면 하나를 깨 준다
+
+// 줄은 ~5초 앞에서 스폰되므로, 그 사이 공을 잃으면 "싼 칸" 마저 치명이 될 수 있다.
+// 줄이 30유닛 안에 들어온 뒤로는 매 프레임 검사해서 살 칸이 0 이면 가장 싼 큐브를 터뜨려
+// 빈칸을 만든다. 한 번만 검사하면 앞 줄에서 공을 쓴 뒤의 상태를 못 본다(줄이 연달아 온다).
+// 4유닛 안쪽은 건드리지 않는다 — 코앞에서 큐브가 사라지는 건 보상이 아니라 버그처럼 보인다.
+const ROW_MERCY_MIN_DIST = 4;
+function rowMercyCheck() {
+    const checked = new Set();
+    for (const c of cubes) {
+        if (!c.active || !c.rowId) continue;
+        const dz = c.mesh.position.z - playerWorldZ;
+        if (dz > ROW_MERCY_DIST || dz < ROW_MERCY_MIN_DIST) continue;
+        if (checked.has(c.rowId)) continue;
+        checked.add(c.rowId);
+        const row = cubes.filter(o => o.active && o.rowId === c.rowId);
+        const survivable = row.length < NUMBER_OF_LANES || row.some(o => o.type !== IRON_CUBE_TYPE && o.hp < ballCount);
+        if (survivable) continue;
+        // 가장 싼 칸이 아니라 플레이어가 향하는 차선에 가장 가까운 칸을 깬다 — 침식 직후 0.2초 안에
+        // 3~4차선 밖에 생긴 빈칸은 "있지만 못 가는" 빈칸이다.
+        const aimX = laneToX(steerTarget !== null ? steerTarget : nextLane);
+        let cheapest = null;
+        for (const o of row) {
+            if (!cheapest) { cheapest = o; continue; }
+            const d0 = Math.abs(o.mesh.position.x - aimX), d1 = Math.abs(cheapest.mesh.position.x - aimX);
+            if (d0 < d1 - 0.1 || (Math.abs(d0 - d1) <= 0.1 && o.hp < cheapest.hp)) cheapest = o;
+        }
+        spawnParticles(cheapest.mesh.position, cheapest.mesh.material.color, 10);
+        cheapest.active = false; cheapest.mesh.visible = false;
+        rowMercyCount++;
+    }
+}
+let rowMercyCount = 0;
+
+// 스매시 줄 HP — 레인별 값(0 = 빈칸, -1 = 철큐브). 스폰 시점 공 수 b 기준:
+//   싼 칸 1~3(생존 루트) · 중간 2칸 25~55% · 큰 칸 70~90%(점수 루트) · 치명 칸 b+1 이상.
+// 싼 칸은 b-1 이하로 묶어 "항상 살 길 하나"를 보장한다(b≤2 면 아예 빈칸).
+// 줄은 ~5초 앞에서 스폰되므로 도착 시점 공 수와 다를 수 있다 — 그래서 색은 스폰 때가
+// 아니라 공 수가 바뀔 때마다 다시 칠한다(refreshCubeColors).
+function rowHPs(b, d) {
+    const U = (a, c) => a + Math.random() * (c - a);
+    const cap = Math.max(1, b - 1);
+    // 싼 칸도 시간이 갈수록 비싸진다(30초마다 +1) — "싼 칸만 고르면 영원히 산다" 를 막는 손잡이.
+    const cheapBase = 1 + Math.floor(gameTimer / 30);
+    const cheap = b <= 2 ? 0 : Math.min(cap, cheapBase + Math.floor(Math.random() * (1 + Math.min(2, Math.floor(d / 3)))));
+    const mid = () => Math.max(1, Math.min(cap, Math.round(b * U(0.25, 0.55))));
+    const big = Math.max(1, Math.min(cap, Math.round(b * U(0.7, 0.9))));
+    const lethal = (d >= 4 && Math.random() < 0.25) ? -1 : Math.max(b + 1, Math.round(b * U(1.15, 1.6)));
+    // 첫 10초는 치명 칸 없이 — 처음 보는 사람이 규칙(초록=싸다)을 익히기 전에 죽지 않게.
+    // 대신 큰 칸도 공 절반 이하로 묶어 "다 부숴도 산다" 를 먼저 맛보게 한다.
+    if (gameTimer < 10) {
+        const soft = Math.max(1, Math.min(cap, Math.round(b * U(0.35, 0.5))));
+        const vals0 = [cheap, mid(), Math.max(1, Math.min(cap, 1 + Math.floor(Math.random() * 2))), soft, Math.max(1, Math.min(cap, Math.round(b * U(0.2, 0.4))))];
+        for (let i = vals0.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [vals0[i], vals0[j]] = [vals0[j], vals0[i]]; }
+        return vals0;
+    }
+    const vals = [cheap, mid(), mid(), big, lethal];
+    for (let i = vals.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [vals[i], vals[j]] = [vals[j], vals[i]]; }
+    return vals;
+}
 
 function generatePattern() {
     const d = getDifficulty();
@@ -3433,6 +3546,13 @@ function generatePattern() {
         const megaChance = 0.02 + d * 0.004;   // d1≈2.4% … d7≈4.8% of collectibles
         return Math.random() < megaChance ? PATTERN_MEGABALL : PATTERN_FREEBALL;
     }
+
+    // F1 박자: 수집물이 아닌 패턴 3개 중 2개가 스매시 줄(줄 → 장애물 → 수집물 → 줄 → 줄 …).
+    // 부수기가 주 동사가 되도록 줄이 기본 박자이고, 바·벽 같은 장애물은 변주다.
+    nonCollectiblePatternCount++;
+    if (nonCollectiblePatternCount % 3 !== 2) return PATTERN_SMASH_ROW;
+    // 첫 6초의 장애물 자리는 공 픽업으로 — 첫 경험이 "부수고 → 불어난다" 가 되게(성장 먼저).
+    if (gameTimer < 6) return PATTERN_FREEBALL;
 
     const patterns = [];
     // Always have basic obstacles
@@ -3486,26 +3606,69 @@ function getFreeMegaBallItem() {
 }
 
 function updateCubeText(cube) {
+    // 128px 캔버스 + 굵은 외곽선: 예전 64px/36px 흰 글씨는 먼 줄에서 숫자를 못 읽어
+    // "어느 칸을 부술지" 고를 수가 없었다(선택이 이 게임의 핵심 동사).
     const ctx = cube.canvas.getContext('2d');
-    ctx.clearRect(0, 0, 64, 64);
+    const W = cube.canvas.width, C = W / 2;
+    ctx.clearRect(0, 0, W, W);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.lineJoin = 'round';
     if (cube.type === IRON_CUBE_TYPE) {
-        // Draw X / skull mark
-        ctx.fillStyle = '#ff0000';
-        ctx.font = 'bold 44px Arial';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.strokeStyle = '#ffff00';
-        ctx.lineWidth = 2;
-        ctx.strokeText('X', 32, 32);
-        ctx.fillText('X', 32, 32);
+        ctx.font = '900 92px Arial';
+        ctx.strokeStyle = '#000000';
+        ctx.lineWidth = 14;
+        ctx.strokeText('✕', C, C + 4);
+        ctx.fillStyle = '#ff3b3b';
+        ctx.fillText('✕', C, C + 4);
     } else if (cube.hp > 0) {
+        const t = cube.hp.toString();
+        ctx.font = '900 ' + (t.length >= 3 ? 64 : 84) + 'px Arial';
+        ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+        ctx.lineWidth = 14;
+        ctx.strokeText(t, C, C + 4);
         ctx.fillStyle = '#ffffff';
-        ctx.font = 'bold 36px Arial';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(cube.hp.toString(), 32, 32);
+        ctx.fillText(t, C, C + 4);
     }
     cube.texture.needsUpdate = true;
+}
+
+// ------------------------------------------------------------
+// 가성비 색 — 큐브 색 = 지금 공 수로 이 큐브를 부수면 얼마나 아픈가.
+// 초록 = 싸다(≤35%) · 노랑 = 보통(<70%) · 주황 = 비싸다(<100%) · 빨강 = 못 부순다(죽는다).
+// 공 수가 바뀔 때마다 다시 칠한다 → 픽업 하나로 빨강이 주황으로 바뀌는 게 눈에 보인다.
+// ------------------------------------------------------------
+const AFFORD_COLORS = [
+    new THREE.Color(0x3dff8a),   // cheap
+    new THREE.Color(0xffd23f),   // fair
+    new THREE.Color(0xff8a2a),   // costly
+    new THREE.Color(0xff2d55),   // lethal
+];
+const IRON_BODY_COLOR = new THREE.Color(0x2a2d36);
+function affordTier(hp, balls) {
+    if (hp >= balls) return 3;
+    const r = hp / Math.max(1, balls);
+    return r <= 0.35 ? 0 : r < 0.7 ? 1 : 2;
+}
+function paintCube(cube) {
+    const m = cube.mesh.material;
+    if (cube.type === IRON_CUBE_TYPE) {
+        m.color.copy(IRON_BODY_COLOR);
+        m.emissive.set(0xff0000);
+        cube.tier = 4;
+        return;
+    }
+    const tier = affordTier(cube.hp, ballCount);
+    cube.tier = tier;
+    m.color.copy(AFFORD_COLORS[tier]);
+    m.emissive.copy(AFFORD_COLORS[tier]);
+    m.emissiveIntensity = tier === 3 ? 0.55 : 0.3;
+}
+let _paintedForBalls = -1;
+function refreshCubeColors(force) {
+    if (!force && ballCount === _paintedForBalls) return;
+    _paintedForBalls = ballCount;
+    for (const c of cubes) if (c.active) paintCube(c);
 }
 
 function updateBallItemText(item) {
@@ -3535,21 +3698,18 @@ function spawnCube(z, lane, cubeType, level, yLevel) {
     cube.type = type;
     cube.active = true;
     cube.shakeTimer = 0;
+    cube.rowId = 0;
     cube.mesh.scale.set(1, 1, 1);
 
     if (type === IRON_CUBE_TYPE) {
         cube.hp = 0;
         cube.score = IRON_CUBE_SCORE;
-        cube.mesh.material.color.copy(IRON_CUBE_COLOR);
-        cube.mesh.material.emissive.set(0xff0000);
         cube.mesh.material.emissiveIntensity = 0.6;
     } else {
         cube.hp = getCubeHP(type, lvl);
         cube.score = cube.hp;
-        cube.mesh.material.color.copy(CUBE_COLORS[type % CUBE_COLORS.length]);
-        cube.mesh.material.emissive.copy(CUBE_COLORS[type % CUBE_COLORS.length]);
-        cube.mesh.material.emissiveIntensity = 0.2;
     }
+    paintCube(cube);
 
     const x = laneToX(lane);
     const y = 0.4 + (yLevel || 0) * 0.8; // yLevel stacks cubes for towers
@@ -3623,6 +3783,12 @@ function spawnBar(z, kind, opts = {}) {
     if (kind === BAR_HURDLE) {
         y = 0.5; h = 0.9; bar.deadly = false;
         m.color.set(0xffcc00); m.emissive.set(0xffaa00); m.emissiveIntensity = 0.6; m.opacity = 1;
+    } else if (kind === BAR_OVERHEAD && opts.gate) {
+        // 스매시 줄 위 게이트 빔 — 판정은 일반 오버헤드와 같다(y>0.9 면 침식).
+        // 큐브 판정은 dy<0.75 라 점프하면 줄 전체를 공짜로 넘을 수 있었다 → 고르기 메커닉이
+        // 통째로 무력화된다. 빔은 숫자를 가리지 않게 높고 얇게.
+        y = 1.95; h = 0.22; bar.deadly = false;
+        m.color.set(0xffffff); m.emissive.set(0xff66dd); m.emissiveIntensity = 0.9; m.opacity = 0.75;
     } else if (kind === BAR_OVERHEAD) {
         y = 1.7; h = 0.7; bar.deadly = false;
         m.color.set(0xff44cc); m.emissive.set(0xcc0088); m.emissiveIntensity = 0.6; m.opacity = 1;
@@ -3654,12 +3820,41 @@ function spawnTower(z, lane, height, level) {
     }
 }
 
+// 반환값 = 이 패턴이 기본 간격 외에 더 차지하는 길이(유닛). 커서가 그만큼 더 전진해
+// 긴 패턴(CASCADE ≈ 50유닛) 위에 다음 패턴이 겹쳐 깔리던 문제를 막는다.
 function spawnPatternAt(z) {
     const pattern = generatePattern();
     const d = getDifficulty();
     const level = getCubeLevel();
+    let extra = 0;
 
     switch (pattern) {
+        case PATTERN_SMASH_ROW: {
+            // 바(허들·레이저 등) 바로 뒤에 줄이 오면 점프 착지 전에 게이트 빔에 걸린다 → 앞 여유를 둔다.
+            const pre = lastPatternWasBar ? Math.max(6, velocity.z * 0.7) : 0;
+            z += pre;
+            extra += pre;
+            const hps = rowHPs(ballCount, d);
+            const rowId = ++smashRowSeq;
+            let bigLane = -1, bigHp = 0;
+            for (let lane = 0; lane < NUMBER_OF_LANES; lane++) {
+                const hp = hps[lane];
+                if (hp === 0) continue;
+                if (hp < 0) { const ic = spawnCube(z, lane, IRON_CUBE_TYPE, 0); if (ic) ic.rowId = rowId; continue; }
+                const c = spawnCube(z, lane, 0, 0);
+                if (!c) continue;
+                c.rowId = rowId;
+                c.hp = hp; c.score = hp;
+                updateCubeText(c); paintCube(c);
+                if (hp < ballCount && hp > bigHp) { bigHp = hp; bigLane = lane; }
+            }
+            // 비싼 칸을 부순 사람에게 코인 — 점수 루트와 상점 루트를 같은 방향으로 묶는다.
+            if (bigLane >= 0) for (let i = 0; i < 3; i++) spawnCoin(z + 1.6 + i * 1.3, bigLane);
+            spawnBar(z, BAR_OVERHEAD, { gate: true });
+            // 줄 뒤 여유 = 속도 비례(≈0.8초). 다음 줄까지 차선을 옮길 시간이 있어야 선택이 된다.
+            extra += Math.max(6, velocity.z * 0.8);
+            break;
+        }
         case PATTERN_CUBES_SINGLE: {
             const lane = Math.floor(Math.random() * 5);
             spawnCube(z, lane, undefined, level);
@@ -3679,6 +3874,7 @@ function spawnPatternAt(z) {
             while (lane2 === lane1) lane2 = Math.floor(Math.random() * 5);
             spawnCube(z, lane1, undefined, level);
             spawnCube(z + 3, lane2, undefined, level);
+            extra = 4;
             break;
         }
         case PATTERN_WALL_LEFT:
@@ -3692,6 +3888,7 @@ function spawnPatternAt(z) {
                 const lane = (i % 2 === 0) ? Math.floor(Math.random() * 3) : 2 + Math.floor(Math.random() * 3);
                 spawnCube(z + i * 3, lane, undefined, level);
             }
+            extra = 7;
             break;
         }
         case PATTERN_CUBES_WALL: {
@@ -3729,6 +3926,7 @@ function spawnPatternAt(z) {
             do { lane2 = Math.floor(Math.random() * 5); } while (Math.abs(lane2 - lane1) < 2);
             spawnWall(z, lane1);
             spawnWall(z + 5, lane2);
+            extra = 6;
             break;
         }
         case PATTERN_CUBE_STORM: {
@@ -3737,6 +3935,7 @@ function spawnPatternAt(z) {
             lanes.forEach((lane, i) => {
                 spawnCube(z + i * 2, lane, undefined, level);
             });
+            extra = 8;
             break;
         }
         case PATTERN_NARROW_PASS: {
@@ -3763,7 +3962,7 @@ function spawnPatternAt(z) {
             const hard = spawnCube(z, rightLane, undefined, Math.min(level + 1, 2));
             // Make the disparity obvious: bump the "hard" cube's HP well above the easy one.
             if (easy && hard && hard.type !== IRON_CUBE_TYPE && easy.type !== IRON_CUBE_TYPE) {
-                if (hard.hp <= easy.hp) { hard.hp = easy.hp + 4 + Math.floor(Math.random() * 6); hard.score = hard.hp; updateCubeText(hard); }
+                if (hard.hp <= easy.hp) { hard.hp = easy.hp + 4 + Math.floor(Math.random() * 6); hard.score = hard.hp; updateCubeText(hard); paintCube(hard); }
                 const rewardLane = hard.hp > easy.hp ? rightLane : leftLane;
                 for (let i = 0; i < 4; i++) spawnCoin(z + 2 + i * 1.3, rewardLane);
             }
@@ -3805,6 +4004,7 @@ function spawnPatternAt(z) {
             spawnBar(z + jd + 4, BAR_OVERHEAD);          // +4 = landing buffer, so it's fair
             spawnBar(z + jd + 12, BAR_SWEEPER, { span: LANE_WIDTH * 1.1 });
             if (d >= 6) spawnBar(z + jd * 2 + 16, BAR_LASER, { blink: true });
+            extra = (d >= 6 ? jd * 2 + 16 : jd + 12) + 4;
             break;
         }
     }
@@ -3817,6 +4017,9 @@ function spawnPatternAt(z) {
             spawnCoin(z + 1.5 + i * 1.4, lane);
         }
     }
+    lastPatternWasBar = pattern === PATTERN_HURDLE || pattern === PATTERN_OVERHEAD || pattern === PATTERN_SWEEPER
+        || pattern === PATTERN_LASER || pattern === PATTERN_CASCADE;
+    return extra;
 }
 
 function ensureRoadsAndPatterns() {
@@ -3839,8 +4042,8 @@ function ensureRoadsAndPatterns() {
     // 영향을 주고 이미 배치된 구간은 건드리지 않는다. spacing 값과 패턴 선택 로직은 그대로다.
     const patternSpacing = Math.max(5, 8 - getDifficulty() * 0.4);
     while (nextPatternZ < ballZ + PATTERN_LOOKAHEAD) {
-        spawnPatternAt(nextPatternZ);
-        nextPatternZ += patternSpacing;
+        const extra = spawnPatternAt(nextPatternZ);
+        nextPatternZ += patternSpacing + extra;
     }
 
     // Despawn behind
@@ -3952,15 +4155,24 @@ function checkCollisions() {
     // Cubes
     for (const cube of cubes) {
         if (!cube.active) continue;
+        // 한 줄에서 한 칸을 부쉈으면 그 줄의 나머지 칸은 통과 — 줄을 비스듬히 지나며 두 칸을
+        // 연달아 맞아 죽는 일을 막는다("초록을 깼는데 옆 빨강에 죽었다").
+        if (cube.rowId && cube.rowId === passedRowId) continue;
         const dx = Math.abs(ballPos.x - cube.mesh.position.x);
         const dy = Math.abs(ballPos.y - cube.mesh.position.y);
         const dz = Math.abs(ballPos.z - cube.mesh.position.z);
 
-        if (dx < (0.4 + ballRadius) && dy < (0.4 + ballRadius) && dz < (0.4 + ballRadius)) {
+        // 가로 판정은 "공 중심이 이 큐브의 차선 안" 으로 좁힌다(0.5 = 차선 반폭). 예전 0.75 는
+        // 차선을 바꾸는 0.1초 동안 양옆 큐브를 둘 다 건드려서, 5칸 꽉 찬 줄 앞에서 초록 칸으로
+        // 꺾으면 옆의 빨강 칸에 맞아 죽었다. 메가 볼(반경 0.55)은 넓게 쓸고 지나가도록 그대로.
+        const hitW = isMega ? (0.4 + ballRadius) : 0.5;
+        if (dx < hitW && dy < (0.4 + ballRadius) && dz < (0.4 + ballRadius)) {
             if (safe) {
-                // Mega ball / invulnerability destroys instantly and safely
+                // Mega ball / invulnerability destroys instantly and safely.
+                // 무적 파괴는 큐브 HP 가 아니라 최대 SAFE_BREAK_SCORE 만 준다 — 치명 칸(공 수의 1.6배)을
+                // 공짜로 부수며 그 HP 를 다 받으면 피버가 점수 폭주 구간이 된다.
                 const mult = comboMultiplier();
-                const gained = Math.round(cube.score * mult);
+                const gained = Math.round(Math.min(cube.score, SAFE_BREAK_SCORE) * mult);
                 score += gained;
                 addCombo();
                 cubesBrokenThisRun++;
@@ -3993,8 +4205,10 @@ function checkCollisions() {
             if (ballCount > cube.hp) {
                 // More balls than cube HP - destroy and pass through
                 const cost = cube.hp;
+                if (cube.rowId) passedRowId = cube.rowId;
                 ballCount -= cost;
                 addCombo();
+                chargeFever();
                 cubesBrokenThisRun++;
                 const mult = comboMultiplier();
                 const gained = Math.round(cube.score * mult);
@@ -4016,6 +4230,7 @@ function checkCollisions() {
                 cube.hp -= ballCount;
                 ballCount = 0;
                 updateCubeText(cube);
+                paintCube(cube);
                 cube.shakeTimer = 0.05;
                 mainBallGroup.position.z = cube.mesh.position.z - 0.675 - HIT_BACK_DISTANCE;
                 playerWorldZ = mainBallGroup.position.z;
@@ -4058,7 +4273,9 @@ function checkCollisions() {
             mainBallGroup.position.z = wz - 0.5 - ballRadius;
             playerWorldZ = mainBallGroup.position.z;
 
-            // Bounce randomly left or right
+            // Bounce randomly left or right. 조향 목표는 버린다 — 남겨두면 튕겨난 직후
+            // 다시 벽 차선으로 끌려 들어간다.
+            steerTarget = null;
             const goRight = Math.random() < 0.5;
             if (goRight && currentLane < NUMBER_OF_LANES - 1) {
                 nextLane = currentLane + 1;
@@ -4074,6 +4291,7 @@ function checkCollisions() {
                 velocity.x = -SIDE_SPEED;
             }
 
+            reanchorDrag();
             playSound('hitWall');
             cameraShake = 0.2;
         }
@@ -4343,6 +4561,7 @@ function doRevive() {
     // rescue it either (it early-returns while canJump). Mirrors resetGameState().
     mainBallGroup.position.y = BALL_GROUND_Y;
     velocity.y = 0;
+    steerTarget = null;
     readyToBounceOnGround = true;
     didJumpDuringCollision = false;
     lastCube = null;
@@ -4448,20 +4667,39 @@ function moveFollowingBalls(dt) {
 // ============================================================
 // INPUT HANDLING
 // ============================================================
-let touchStartX = 0;
-let touchStartY = 0;
-let touchStartTime = 0;
-let hasSwiped = false;
 
-// Direct handlers for keyboard
-function handleMoveLeft() { moveRight(); }
-function handleMoveRight() { moveLeft(); }
+let newBestShown = false;
+
+// ------------------------------------------------------------
+// STEERING (F1) — 목표 차선(steerTarget) 방식.
+// 예전엔 입력 1번 = 1차선이고, 이동 중(0.1초) 들어온 입력은 버려졌다. 5차선 끝에서 끝까지
+// 스와이프 4번이 필요했고 빠른 연타는 유실됐다. 이제 입력은 "목표 차선"만 바꾸고,
+// processSteer() 가 매 프레임 한 칸씩 목표까지 간다. 터치/마우스는 손가락을 떼지 않고
+// 끄는 거리만큼 차선이 따라온다(Snake vs Block·게이트 러너식 드래그).
+// 레인 인덱스 방향: moveRight() = lane+1 = 화면 왼쪽(카메라가 +z 를 본다).
+// ------------------------------------------------------------
+let steerTarget = null;
+function clampLane(l) { return Math.max(0, Math.min(NUMBER_OF_LANES - 1, l)); }
+function steerBy(delta) {
+    const base = steerTarget !== null ? steerTarget : nextLane;
+    steerTarget = clampLane(base + delta);
+    hideFirstRunHint();
+}
+function processSteer() {
+    if (steerTarget === null) return;
+    if (currentLane !== nextLane) return;            // 이동 중이면 도착 후 다음 칸
+    if (steerTarget === currentLane) { if (!dragActive) steerTarget = null; return; }
+    canSwipe = true;
+    if (steerTarget < currentLane) moveLeft(); else moveRight();
+}
+
+// Direct handlers for keyboard (화면 기준 ← = lane+1)
+function handleMoveLeft() { steerBy(+1); }
+function handleMoveRight() { steerBy(-1); }
 function handleMoveUp() { jump(); }
 function handleMoveDown() { fastFall(); }
 
-// Swipe handlers for touch/mouse
-function handleSwipeRight() { moveLeft(); }
-function handleSwipeLeft() { moveRight(); }
+// Vertical flick handlers for touch/mouse
 function handleSwipeUp() { jump(); }
 function handleSwipeDown() { fastFall(); }
 
@@ -4525,77 +4763,100 @@ document.addEventListener('keydown', (e) => {
     }
 });
 
-// Touch
+// Touch / mouse drag steering
 const touchArea = document.getElementById('touch-area');
+const DRAG_LANE_PX = () => Math.max(36, Math.min(70, window.innerWidth / 8));
+const FLICK_PX = 30;          // 세로 플릭 최소 거리
+const FLICK_WINDOW_MS = 120;  // 최근 이 시간 동안의 이동만 플릭 판정에 쓴다(천천히 끄는 건 조향)
+let dragActive = false;
+let dragTouchId = null;       // 조향을 쥔 손가락 — 다른 손가락의 탭/떼기는 무시
+let dragStartX = 0, dragStartLane = 2, dragLastX = 0;
+let flickSamples = [];        // [{x, y, t}] 최근 FLICK_WINDOW_MS
+let lastFlickAt = 0;
+function inputLive() { return gameState === 'playing' || gameState === 'tutorial'; }
+function dragBegin(x, y) {
+    dragActive = true;
+    dragStartX = x; dragLastX = x;
+    dragStartLane = steerTarget !== null ? steerTarget : nextLane;
+    flickSamples = [{ x, y, t: performance.now() }];
+}
+// 벽에 튕겨 차선이 바뀌면 손가락 위치를 새 차선에 다시 묶는다 — 그대로 두면 다음 touchmove 가
+// 원래 목표(벽 차선)를 되살려 다시 벽으로 끌고 간다.
+function reanchorDrag() {
+    if (!dragActive) return;
+    dragStartLane = nextLane;
+    dragStartX = dragLastX;
+}
+function dragMove(x, y) {
+    if (!dragActive) return;
+    dragLastX = x;
+    const now = performance.now();
+    flickSamples.push({ x, y, t: now });
+    while (flickSamples.length > 1 && now - flickSamples[0].t > FLICK_WINDOW_MS) flickSamples.shift();
+    // 창 안의 이동만 본다 → 직전 가로 조향 거리가 섞이지 않는다(조향 직후 점프 플릭 유실 방지).
+    const o = flickSamples[0];
+    const fdx = x - o.x, fdy = y - o.y;
+    if (Math.abs(fdy) > FLICK_PX && Math.abs(fdy) > 1.5 * Math.abs(fdx) && now - lastFlickAt > 250) {
+        lastFlickAt = now;
+        if (fdy < 0) handleSwipeUp(); else handleSwipeDown();
+        flickSamples = [{ x, y, t: now }];
+        dragStartX = x;                       // 플릭에 섞인 가로 흔들림이 차선을 옮기지 않게
+        dragStartLane = steerTarget !== null ? steerTarget : nextLane;
+        return;
+    }
+    const px = DRAG_LANE_PX();
+    let target = dragStartLane - Math.round((x - dragStartX) / px);
+    if (target < 0 || target > NUMBER_OF_LANES - 1) {
+        // 끝 차선을 넘어 끌면 기준점을 다시 잡는다 → 반대로 끌면 바로 반응.
+        target = clampLane(target);
+        dragStartLane = target;
+        dragStartX = x;
+    }
+    const cur = steerTarget !== null ? steerTarget : nextLane;
+    if (target !== cur) { steerTarget = target; hideFirstRunHint(); }
+}
+function dragEnd() {
+    dragActive = false;
+    dragTouchId = null;
+    canSwipe = true;
+}
+function trackedTouch(list) {
+    for (let i = 0; i < list.length; i++) if (list[i].identifier === dragTouchId) return list[i];
+    return null;
+}
 
 document.addEventListener('touchstart', (e) => {
-    if (gameState !== 'playing' && gameState !== 'tutorial') return;
-    touchStartX = e.touches[0].clientX;
-    touchStartY = e.touches[0].clientY;
-    touchStartTime = Date.now();
-    hasSwiped = false;
+    if (!inputLive()) return;
+    if (dragActive && dragTouchId !== null) return;          // 이미 조향 중인 손가락이 있다
+    const t = e.changedTouches[0];
+    dragTouchId = t.identifier;
+    dragBegin(t.clientX, t.clientY);
 }, { passive: true });
-
 document.addEventListener('touchmove', (e) => {
-    if (gameState !== 'playing' && gameState !== 'tutorial') return;
-    if (hasSwiped) return;
-
-    const dx = e.touches[0].clientX - touchStartX;
-    const dy = e.touches[0].clientY - touchStartY;
-    const adx = Math.abs(dx);
-    const ady = Math.abs(dy);
-
-    const threshold = 20;
-
-    if (adx > threshold || ady > threshold) {
-        hasSwiped = true;
-        if (ady > adx) {
-            if (dy < -threshold) handleSwipeUp();
-            else if (dy > threshold) handleSwipeDown();
-        } else if (dx > threshold) {
-            handleSwipeRight();
-        } else if (dx < -threshold) {
-            handleSwipeLeft();
-        }
-    }
+    if (!inputLive()) return;
+    const t = trackedTouch(e.touches);
+    if (t) dragMove(t.clientX, t.clientY);
 }, { passive: true });
+function onTouchEnd(e) {
+    if (dragTouchId === null || trackedTouch(e.changedTouches)) dragEnd();
+}
+document.addEventListener('touchend', onTouchEnd, { passive: true });
+document.addEventListener('touchcancel', onTouchEnd, { passive: true });
 
-document.addEventListener('touchend', () => {
-    canSwipe = true;
-}, { passive: true });
-
-// Mouse (for desktop drag)
+// Mouse (desktop drag) — 같은 로직
 let mouseDown = false;
 document.addEventListener('mousedown', (e) => {
-    if (gameState !== 'playing' && gameState !== 'tutorial') return;
-    touchStartX = e.clientX;
-    touchStartY = e.clientY;
+    if (!inputLive()) return;
     mouseDown = true;
-    hasSwiped = false;
+    dragBegin(e.clientX, e.clientY);
 });
 document.addEventListener('mousemove', (e) => {
-    if (!mouseDown || hasSwiped) return;
-    if (gameState !== 'playing' && gameState !== 'tutorial') return;
-
-    const dx = e.clientX - touchStartX;
-    const dy = e.clientY - touchStartY;
-    const threshold = 15;
-
-    if (Math.abs(dx) > threshold || Math.abs(dy) > threshold) {
-        hasSwiped = true;
-        if (Math.abs(dy) > Math.abs(dx)) {
-            if (dy < -threshold) handleSwipeUp();
-            else if (dy > threshold) handleSwipeDown();
-        } else if (dx > threshold) {
-            handleSwipeRight();
-        } else if (dx < -threshold) {
-            handleSwipeLeft();
-        }
-    }
+    if (!mouseDown || !inputLive()) return;
+    dragMove(e.clientX, e.clientY);
 });
 document.addEventListener('mouseup', () => {
     mouseDown = false;
-    canSwipe = true;
+    dragEnd();
 });
 
 // ============================================================
@@ -4689,6 +4950,7 @@ function updateUI() {
     ballCountDisplay.style.display = '';
     if (ballCount > ballCountPeak) ballCountPeak = ballCount;
     updateBallCountSprite();
+    refreshCubeColors(false);
 
     // Mega ball timer bar
     if (megaBallTimer > 0) {
@@ -4726,10 +4988,12 @@ function showFirstRunHint() {
     // NB: this runs in the game module (script #2), which has no load()/save() — those
     // live in the SB module (script #1). Use localStorage directly.
     // v2: controls gained a fast-fall, so re-show the hint once even to existing players.
-    try { if (localStorage.getItem('sb_hintSeen_v2')) return; } catch (e) {}
-    try { localStorage.setItem('sb_hintSeen_v2', '1'); } catch (e) {}
-    tutorialText.innerHTML = '◀ Swipe to steer ▶' +
-        '<br><span style="font-size:15px;opacity:0.85">▲ up to jump · ▼ down to drop fast</span>';
+    // v3: 조향이 드래그로 바뀌고 "초록을 부숴라" 규칙이 생겨 기존 유저에게도 1회 재노출.
+    try { if (localStorage.getItem('sb_hintSeen_v3')) return; } catch (e) {}
+    try { localStorage.setItem('sb_hintSeen_v3', '1'); } catch (e) {}
+    tutorialText.innerHTML = '◀ Drag to steer ▶' +
+        '<br><span style="font-size:15px;opacity:0.9">Smash <b style="color:#3dff8a">green</b> · avoid <b style="color:#ff2d55">red</b></span>' +
+        '<br><span style="font-size:13px;opacity:0.75">flick ▲ jump · flick ▼ drop</span>';
     tutorialOverlay.style.display = 'block';
     if (_hintTimeout) clearTimeout(_hintTimeout);
     _hintTimeout = setTimeout(hideFirstRunHint, 5000);
@@ -4804,6 +5068,17 @@ function resetGameState() {
     nextSpawnZ = 0;
     nextPatternZ = PATTERN_START_Z;   // 인덱스가 아니라 z 커서를 리셋 (첫 패턴 z = 20, 기존과 동일)
     spawnedPatternCount = 0;
+    nonCollectiblePatternCount = 0;
+    smashRowSeq = 0;
+    passedRowId = 0;
+    lastPatternWasBar = false;
+    rowMercyCount = 0;
+    feverCharge = 0; feversThisRun = 0; feverMegaActive = false;
+    steerTarget = null; dragActive = false;
+    newBestShown = false;
+    hideBanner();
+    setStageInstant(0);
+    _paintedForBalls = -1;
 
     // ---- run economy / progression reset ----
     runCoins = 0;
@@ -5214,7 +5489,9 @@ function collectCoin(n) {
 // end-of-run coin payout, so combos pay off both ways)
 // ============================================================
 const comboDisplay = () => document.getElementById('combo-display');
-function comboMultiplier() { return 1 + Math.floor(combo / 5) * 0.5; } // x1, x1.5 @5, x2 @10, ...
+// x1, x1.5 @5, x2 @10, x2.5 @15, x3 @20 — 상한 x3. 줄이 1.4초 간격으로 와서 콤보가 사실상 안 끊기는데
+// 배율이 무한히 오르면 10분 근처 장기 런이 서버 안티치트 상한(300·t+200)을 넘어 정상 기록이 거부된다.
+function comboMultiplier() { return 1 + Math.min(4, Math.floor(combo / 5)) * 0.5; }
 // Combo colour ladder — the display heats up as the streak climbs, mirroring the
 // ascending combo chime so the reward is felt in sound AND colour.
 function comboTier(c) {
@@ -5245,8 +5522,101 @@ function addCombo() {
 }
 function resetCombo() {
     combo = 0; comboTimer = 0;
+    feverCharge = 0;
+    updateFeverHUD();
     const el = comboDisplay();
     if (el) el.style.display = 'none';
+}
+
+// ------------------------------------------------------------
+// FEVER (F1) — 쉬지 않고(콤보 끊김 없이) 직접 FEVER_CHARGE 개를 부수면 메가 상태로 돌입.
+// 무적 중 파괴는 충전하지 않고, 발동 순간 0 으로 비운다 → 연쇄 발동 없음.
+// ------------------------------------------------------------
+const FEVER_CHARGE = 10;
+const SAFE_BREAK_SCORE = 10;
+const SCORE_RAIL_PER_SEC = 220;
+let feverCharge = 0;
+let feversThisRun = 0;
+function updateFeverHUD() {
+    const wrap = document.getElementById('fever-charge');
+    const bar = document.getElementById('fever-charge-bar');
+    if (!wrap || !bar) return;
+    wrap.classList.toggle('full', megaBallTimer > 0 && feverMegaActive);
+    bar.style.width = Math.round(feverCharge / FEVER_CHARGE * 100) + '%';
+}
+let feverMegaActive = false;
+function chargeFever() {
+    if (megaBallTimer > 0) return;
+    feverCharge++;
+    if (feverCharge >= FEVER_CHARGE) {
+        feverCharge = 0;
+        feverMegaActive = true;
+        feversThisRun++;
+        activateMegaBall();
+        showBanner('FEVER!', 'SMASH EVERYTHING', '#ff3df0');
+        playSound('getMega');
+        hitStop = 0.06;
+        cameraShake = Math.max(cameraShake, 0.25);
+        if (window.SB) SB.vibrate('heavy');
+    }
+    updateFeverHUD();
+}
+
+let _bannerTimer = null;
+function showBanner(title, sub, glow) {
+    const el = document.getElementById('stage-banner');
+    if (!el) return;
+    el.querySelector('.t').textContent = title;
+    el.querySelector('.s').textContent = sub || '';
+    el.style.setProperty('--banner-glow', glow || '#63f8cf');
+    el.classList.add('show');
+    if (_bannerTimer) clearTimeout(_bannerTimer);
+    _bannerTimer = setTimeout(() => el.classList.remove('show'), 1300);
+}
+function hideBanner() {
+    const el = document.getElementById('stage-banner');
+    if (el) el.classList.remove('show');
+    if (_bannerTimer) { clearTimeout(_bannerTimer); _bannerTimer = null; }
+}
+
+// ------------------------------------------------------------
+// STAGES (F1) — 25초마다 팔레트 전환 + 배너. 난이도 곡선은 기존 시간 기반 그대로.
+// ------------------------------------------------------------
+let stageIndex = 0;
+let paletteFrom = PALETTES[0], paletteTo = PALETTES[0], paletteT = 1;
+const _cA = new THREE.Color(), _cB = new THREE.Color();
+function lerpHex(a, b, t, out) { return out.set(a).lerp(_cB.set(b), t); }
+function applyPalette(a, b, t) {
+    lerpHex(a.top, b.top, t, skyUniforms.topColor.value);
+    lerpHex(a.horizon, b.horizon, t, skyUniforms.horizonColor.value);
+    scene.fog.color.copy(skyUniforms.horizonColor.value).multiplyScalar(0.35);
+    lerpHex(a.lane, b.lane, t, roadLineMaterial.color);
+    roadLineMaterial.emissive.copy(roadLineMaterial.color);
+    lerpHex(a.border, b.border, t, _cA);
+    for (const m of borderMats) { m.color.copy(_cA); m.emissive.copy(_cA); }
+}
+function setStageInstant(idx) {
+    stageIndex = idx;
+    paletteFrom = paletteTo = PALETTES[idx % PALETTES.length];
+    paletteT = 1;
+    applyPalette(paletteTo, paletteTo, 1);
+}
+function updateStage(dt) {
+    const idx = Math.floor(gameTimer / STAGE_SECONDS);
+    if (idx !== stageIndex) {
+        stageIndex = idx;
+        const pal = PALETTES[idx % PALETTES.length];
+        paletteFrom = { top: skyUniforms.topColor.value.getHex(), horizon: skyUniforms.horizonColor.value.getHex(),
+                        lane: roadLineMaterial.color.getHex(), border: borderMats[0] ? borderMats[0].color.getHex() : pal.border };
+        paletteTo = pal; paletteT = 0;
+        showBanner('STAGE ' + (idx + 1), pal.name, '#' + new THREE.Color(pal.border).getHexString());
+        playSound('getItem');
+        if (window.SB) SB.vibrate('medium');
+    }
+    if (paletteT < 1) {
+        paletteT = Math.min(1, paletteT + dt / 1.2);
+        applyPalette(paletteFrom, paletteTo, paletteT);
+    }
 }
 
 // ============================================================
@@ -5486,8 +5856,20 @@ function update() {
                 velocity.z += speedChange * dt;
             }
 
+            processSteer();
             moveBall(dt, false);
+            rowMercyCheck();
             checkCollisions();
+            // 안전 레일 — 제출 점수가 서버 상한(300·경과초+200)에 닿지 않게 초당 220 으로 묶는다.
+            // 서버는 600초에서 크레딧을 자르므로(상한 180,200) 약 815초 이후엔 이 레일만으로는 부족하지만,
+            // 정상 플레이는 초당 10~30 이라 그 근처에 가지 않는다.
+            if (score > SCORE_RAIL_PER_SEC * gameTimer + 100) score = Math.floor(SCORE_RAIL_PER_SEC * gameTimer + 100);
+            updateStage(dt);
+            if (!newBestShown && bestScore > 0 && score + Math.floor(gameTimer) > bestScore) {
+                newBestShown = true;
+                showBanner('NEW BEST!', 'KEEP ROLLING', '#ffd23f');
+                if (window.SB) SB.vibrate('success');
+            }
         }
 
         // Mega ball timer
@@ -5498,6 +5880,8 @@ function update() {
             if (megaBallTimer <= 0) {
                 megaBallMesh.visible = false;
                 velocity.z = preMegaBallSpeed;
+                feverMegaActive = false;
+                updateFeverHUD();
                 updateUI();
             } else if (megaBallTimer < 2) {
                 // Fast flicker near end
@@ -5646,6 +6030,7 @@ function update() {
         camera.position.x += shakeX;
         camera.position.y = 4.5 + shakeY;
         camera.lookAt(mainBallGroup.position.x * 0.3, 0.5, playerWorldZ + 12);
+        skyMesh.position.copy(camera.position);
 
         // Dynamic fog
         scene.fog.near = 30 + speedRatio * 20;
