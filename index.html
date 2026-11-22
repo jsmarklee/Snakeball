@@ -230,6 +230,42 @@ canvas { display: block; width: 100%; height: 100%; }
 #stage-banner .t { font-size: 44px; font-weight: 900; color: #fff; letter-spacing: 2px;
     text-shadow: 0 0 18px var(--banner-glow, #63f8cf), 0 4px 0 rgba(0,0,0,0.5); }
 #stage-banner .s { font-size: 16px; font-weight: 800; letter-spacing: 4px; color: var(--banner-glow, #63f8cf); margin-top: 4px; }
+/* F2: 피버 화면 가장자리 — box-shadow 는 고정, opacity 만 애니메이션(리페인트 최소화) */
+#fever-fx {
+    position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; opacity: 0;
+    box-shadow: inset 0 0 90px 24px rgba(255,61,240,0.55), inset 0 0 26px 6px rgba(255,210,63,0.5);
+    transition: opacity 0.25s;
+}
+#fever-fx.on { opacity: 1; animation: feverFx 0.5s ease-in-out infinite alternate; }
+@keyframes feverFx { from { opacity: 0.55; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { #fever-fx.on { animation: none; opacity: 0.7; } }
+/* F2: 공 옆 숫자(낸 공 −N / 얻은 공 +N / 크기 단계) */
+.score-popup.world {
+    font-size: 30px; font-weight: 900; white-space: nowrap;
+    text-shadow: 0 2px 0 rgba(0,0,0,0.6), 0 0 10px currentColor;
+    animation: worldPop 0.8s ease-out forwards;
+}
+@keyframes worldPop {
+    0% { opacity: 0; transform: translate(-50%, -30%) scale(0.6); }
+    15% { opacity: 1; transform: translate(-50%, -60%) scale(1.25); }
+    100% { opacity: 0; transform: translate(-50%, -190%) scale(1); }
+}
+#score-display.best { color: #ffd23f; text-shadow: 0 0 14px rgba(255,210,63,0.9); }
+/* F2: 최장 거리 선까지 남은 거리 */
+#best-chase {
+    position: absolute; top: calc(74px + env(safe-area-inset-top, 0px)); left: 16px; display: none;
+    color: #ffd23f; font-size: 15px; font-weight: 800; text-shadow: 0 2px 6px rgba(0,0,0,0.7);
+}
+/* F2: 결과 화면 — 원인 · 최고 대비 진행 · 스테이지 · 신기록 칩 */
+#result-screen #result-extra { width: min(340px, 86vw); margin: 2px 0 14px; }
+.rx-why { color: #ffb3a0; font-size: 13px; text-align: center; margin-bottom: 10px; }
+.rx-row { margin-bottom: 9px; }
+.rx-label { display: flex; justify-content: space-between; color: #b9b9d6; font-size: 12px; font-weight: 700; margin-bottom: 4px; }
+.rx-bar { height: 8px; border-radius: 4px; background: rgba(255,255,255,0.12); overflow: hidden; }
+.rx-bar > div { height: 100%; border-radius: 4px; background: linear-gradient(90deg, #ffd23f, #ff9f1c); }
+.rx-bar.stage > div { background: linear-gradient(90deg, #63f8cf, #4be1ff); }
+.rx-chips { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin-top: 4px; }
+.rx-chip { background: rgba(255,210,63,0.14); border: 1px solid rgba(255,210,63,0.5); color: #ffd23f; font-size: 11px; font-weight: 800; padding: 3px 8px; border-radius: 10px; }
 #run-coins {
     position: absolute; top: max(16px, env(safe-area-inset-top)); right: 16px;
     color: var(--gold); font-size: 18px; font-weight: 800; text-shadow: 0 2px 6px rgba(0,0,0,0.6);
@@ -505,6 +541,8 @@ canvas { display: block; width: 100%; height: 100%; }
         <div id="combo-display"></div>
         <div id="fever-charge"><div id="fever-charge-bar"></div></div>
         <div id="stage-banner"><div class="t"></div><div class="s"></div></div>
+        <div id="fever-fx"></div>
+        <div id="best-chase"></div>
         <div id="mega-timer-wrap">
             <div id="mega-timer-bar"></div>
         </div>
@@ -3115,7 +3153,8 @@ let lastCube = null;
 let didJumpDuringCollision = false;
 let megaBallTimer = 0;
 let preMegaBallSpeed = INITIAL_SPEED;
-let bestScore = parseInt(localStorage.getItem('snakeball_best') || '0');
+let bestScore = 0;
+try { bestScore = parseInt(localStorage.getItem('snakeball_best') || '0') || 0; } catch (e) { /* 저장소 차단(사생활 모드 등) — 0 으로 시작 */ }
 
 // ---- Economy / progression run-state ----
 let runCoins = 0;            // coins collected this run
@@ -3389,6 +3428,376 @@ for (let i = 0; i < PARTICLE_POOL_SIZE; i++) {
     mesh.visible = false;
     scene.add(mesh);
     particles.push({ mesh, active: false, vel: new THREE.Vector3(), life: 0 });
+}
+
+// ============================================================
+// F2 (2026-11-22) — 성장 표시 · 파편 · 스테이지 아치 · 최장 거리 선 · 개인 기록
+// 전부 **연출·정보 전용**이다. 점수·콤보·공 수·미션 입력(cubes/megas/combo/balls)·
+// 서버로 보내는 값은 하나도 바꾸지 않는다(봇 전후 비교로 확인 — POLISH_LOG F2).
+// ============================================================
+
+// ---- 크기 단계: 공 수 구간마다 주 공이 한 단계 커진다(판정은 그대로 0.35/차선 반폭) ----
+// 구간은 봇 실측 최대 공 수 분포(중앙 26~39, 최대 53)에서 잡았다: 14 는 거의 모든 판,
+// 30 은 절반쯤, 46 은 드물게, 56 은 아직 아무도 못 간 목표.
+const SIZE_TIERS = [
+    { min: 1,  scale: 1.0,  name: '' },
+    { min: 14, scale: 1.12, name: 'BIG' },
+    { min: 22, scale: 1.24, name: 'HUGE' },
+    { min: 30, scale: 1.36, name: 'GIANT' },
+    { min: 38, scale: 1.48, name: 'TITAN' },
+    { min: 46, scale: 1.6,  name: 'COLOSSUS' },
+    { min: 56, scale: 1.6,  name: 'BALLDOZER' },   // 스케일 상한 — 금색 입자로 구분
+];
+const SIZE_TIER_DOWN_HYST = 3;       // 내려갈 때는 (구간 하한 − 3) 미만이어야 → 경계에서 깜빡이지 않는다
+const BALL_VISUAL_MAX_SCALE = 1.7;   // 0.35 × 1.7 = 0.595 < 옆 칸 큐브 모서리 0.6 (펀치 포함 상한)
+let sizeTier = 0, sizeTierPeak = 0, ballScaleCur = 1, ballPunch = 0, auraTimer = 0;
+function tierFor(b, cur) {
+    let up = 0;
+    for (let i = SIZE_TIERS.length - 1; i > 0; i--) if (b >= SIZE_TIERS[i].min) { up = i; break; }
+    if (up >= cur) return up;
+    let t = cur;
+    while (t > up && b < SIZE_TIERS[t].min - SIZE_TIER_DOWN_HYST) t--;
+    return t;
+}
+const GOLD_COLOR = new THREE.Color(0xffd23f);
+function updateSizeTier() {
+    const t = tierFor(ballCount, sizeTier);
+    if (t === sizeTier) return;
+    const rose = t > sizeTier;
+    sizeTier = t;
+    // 축하는 이번 판에 처음 도달한 단계에서만 — 경계를 오르내려도 한 번.
+    if (rose && t > sizeTierPeak) {
+        sizeTierPeak = t;
+        if (gameState !== 'playing') return;
+        showWorldPopup(SIZE_TIERS[t].name + '!', '#ffd23f', 2.1);   // −N/+N 숫자보다 위에
+        playNotes([392, 523.25, 659.25], 0.075, 'triangle', 0.09);
+        ballPunch = Math.max(ballPunch, 0.3);
+        spawnParticles(mainBallGroup.position, GOLD_COLOR, 8);
+        if (window.SB) SB.vibrate('medium');
+    }
+}
+function applyBallScale() {
+    const s = Math.min(BALL_VISUAL_MAX_SCALE, ballScaleCur * (1 + ballPunch));
+    mainBallMesh.scale.setScalar(s);
+    mainBallMesh.position.y = (s - 1) * BALL_RADIUS;        // 커져도 바닥에 닿아 있게
+    const ms = 1 + (ballScaleCur - 1) * 0.5;               // 메가 오버레이(반경 0.55)는 절반만 키운다
+    megaBallMesh.scale.setScalar(ms);
+    megaBallMesh.position.y = (ms - 1) * 0.55;
+    ballCountSprite.position.set(0.6 * ballScaleCur, 0.6 + (ballScaleCur - 1) * 0.7, 0);
+}
+
+// ---- 짧은 합성음(연속 음표) ----
+function playNotes(freqs, step, type, vol) {
+    if (!soundEnabled || !audioCtx) return;
+    const now = audioCtx.currentTime;
+    freqs.forEach((f, i) => {
+        const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+        const t = now + i * step;
+        o.type = type; o.frequency.setValueAtTime(f, t);
+        g.gain.setValueAtTime(vol, t);
+        g.gain.exponentialRampToValueAtTime(0.0008, t + step * 1.8);
+        o.connect(g); g.connect(audioCtx.destination);
+        o.start(t); o.stop(t + step * 1.8 + 0.02);
+    });
+}
+
+// ---- 박스 파편 풀: 큐브가 "깨졌다"는 걸 보여 준다. 전방 속도를 실어 화면 안에 남게 한다 ----
+const SHARD_POOL_SIZE = 40;
+const shardGeometry = new THREE.BoxGeometry(0.2, 0.2, 0.2);
+const shards = [];
+for (let i = 0; i < SHARD_POOL_SIZE; i++) {
+    const mesh = new THREE.Mesh(shardGeometry, new THREE.MeshStandardMaterial({ roughness: 0.4, emissiveIntensity: 0.4 }));
+    mesh.visible = false;
+    scene.add(mesh);
+    shards.push({ mesh, active: false, vel: new THREE.Vector3(), spin: new THREE.Vector3(), life: 0 });
+}
+function spawnShards(pos, color, n) {
+    for (const s of shards) {
+        if (n <= 0) break;
+        if (s.active) continue;      // 풀이 비면 조용히 생략
+        n--;
+        s.active = true;
+        s.life = 0.55 + Math.random() * 0.25;
+        s.mesh.position.copy(pos);
+        s.mesh.material.color.copy(color);
+        s.mesh.material.emissive.copy(color);
+        s.mesh.scale.setScalar(0.7 + Math.random() * 0.8);
+        s.vel.set((Math.random() - 0.5) * 9, 3 + Math.random() * 5, velocity.z * 0.7 + Math.random() * 7);
+        s.spin.set((Math.random() - 0.5) * 14, (Math.random() - 0.5) * 14, (Math.random() - 0.5) * 14);
+        s.mesh.visible = true;
+    }
+}
+function updateShards(dt) {
+    for (const s of shards) {
+        if (!s.active) continue;
+        s.life -= dt;
+        if (s.life <= 0) { s.active = false; s.mesh.visible = false; continue; }
+        s.vel.y -= 18 * dt;
+        s.mesh.position.addScaledVector(s.vel, dt);
+        if (s.mesh.position.y < 0.1) { s.mesh.position.y = 0.1; s.vel.y = Math.abs(s.vel.y) * 0.35; }
+        s.mesh.rotation.x += s.spin.x * dt; s.mesh.rotation.y += s.spin.y * dt; s.mesh.rotation.z += s.spin.z * dt;
+        if (s.life < 0.2) s.mesh.scale.multiplyScalar(Math.max(0, 1 - dt * 6));
+    }
+}
+
+// ---- 공 옆 숫자: 낸 공(−N) · 얻은 공(+N) · 크기 단계 이름 ----
+const WORLD_POPUP_MAX = 6;
+const _popV = new THREE.Vector3();
+function showWorldPopup(text, color, dy) {
+    const host = document.getElementById('score-popups');
+    if (!host) return;
+    _popV.copy(mainBallGroup.position); _popV.y += dy || 1.0;
+    _popV.project(camera);
+    if (!(_popV.z < 1) || !Number.isFinite(_popV.x) || !Number.isFinite(_popV.y)) return;
+    const olds = host.querySelectorAll('.score-popup.world');
+    if (olds.length >= WORLD_POPUP_MAX) olds[0].remove();
+    const el = document.createElement('div');
+    el.className = 'score-popup world';
+    el.textContent = text;
+    el.style.color = color;
+    el.style.left = ((_popV.x * 0.5 + 0.5) * 100 + (Math.random() - 0.5) * 8).toFixed(1) + '%';
+    el.style.top = ((-_popV.y * 0.5 + 0.5) * 100).toFixed(1) + '%';
+    host.appendChild(el);
+    setTimeout(() => el.remove(), 850);
+}
+
+// ---- 피버 줄 전멸: 메가 상태로 줄의 한 칸을 치면 나머지 칸이 좌우로 번지며 터진다 ----
+// 번지는 칸은 점수·콤보·cubesBrokenThisRun 을 주지 않는다(보는 맛만). 터지기 전에 공이 직접
+// 닿으면 예전과 똑같이 safe 분기에서 점수를 받는다 → 전멸이 기존 득점을 깎지도 않는다.
+const ROW_WIPE_STEP = 0.045;   // 차선 1칸당 지연(초) 상한
+// 메가 속도(18~45/초)에서는 0.18초면 공이 줄을 5유닛 넘게 지나쳐 끝 칸이 화면 밖에서 터진다.
+// 그래서 줄 전체가 공이 ROW_WIPE_TRAVEL 유닛 가는 동안 다 터지도록 지연을 속도에 맞춘다.
+const ROW_WIPE_TRAVEL = 1.6;
+function wipeRow(hit) {
+    const hx = hit.originalPos.x;
+    for (const o of cubes) {
+        if (!o.active || o === hit || o.rowId !== hit.rowId || o.wipeT > 0 || o.ghost) continue;
+        o.wipeN = Math.max(1, Math.round(Math.abs(o.originalPos.x - hx)));
+        o.wipeT = Math.min(ROW_WIPE_STEP, ROW_WIPE_TRAVEL / 4 / Math.max(1, velocity.z)) * o.wipeN;
+    }
+    // 게이트 빔도 같이 날린다(0.1초 뒤 — 그 사이 점프 중인 공이 닿으면 기존대로 처리된다).
+    for (const b of bars) if (b.active && b.rowId === hit.rowId && !(b.wipeT > 0)) b.wipeT = 0.1;
+}
+function popWipedCube(cube) {
+    spawnShards(cube.mesh.position, cube.mesh.material.color, 3);
+    spawnParticles(cube.mesh.position, cube.mesh.material.color, 4);
+    // 보이지만 않게 하고 판정은 남긴다(ghost). 메가 판정 폭은 0.95 라 차선을 옮기며 줄을 지나면 옆 칸도
+    // 직접 맞아 점수·콤보·cubes 를 받았다 — 터뜨리는 순간 큐브를 없애면 그 득점이 조용히 사라진다(적대 리뷰 실측 −15%).
+    // ghost 는 무적 상태의 공만 맞을 수 있고(비무적이면 통과), 평소처럼 뒤로 지나가면 despawn 된다.
+    cube.ghost = true;
+    cube.mesh.visible = false;
+    playNotes([260 * Math.pow(2, (cube.wipeN || 1) * 3 / 12)], 0.05, 'square', 0.05);
+    cameraShake = Math.min(cameraShake + 0.04, 0.3);
+}
+let feverWarnStep = 0;
+const FEVER_WARN_AT = [1.0, 0.66, 0.33];   // 종료 직전 경고음(남은 초)
+let _feverLook = false;
+function setFeverLook(on) {
+    if (on === _feverLook) return;
+    _feverLook = on;
+    const fx = document.getElementById('fever-fx');
+    if (fx) fx.classList.toggle('on', on);
+    roadLineMaterial.emissiveIntensity = on ? 1.3 : 0.45;
+    for (const m of borderMats) m.emissiveIntensity = on ? 1.3 : 0.5;
+}
+
+// ---- 개인 기록(로컬 전용) — 게임 모듈은 SB 의 load()/save() 를 못 쓴다. localStorage 직접 ----
+const RECORDS_KEY = 'sb_f2_records';
+function loadRecords() {
+    const out = { dist: 0, stage: 0, combo: 0, balls: 0, cubes: 0 };
+    try {
+        const raw = JSON.parse(localStorage.getItem(RECORDS_KEY) || 'null');
+        if (raw && typeof raw === 'object') {
+            for (const k in out) {
+                const v = Math.floor(Number(raw[k]));
+                if (Number.isFinite(v) && v > 0) out[k] = Math.min(v, 10000000);
+            }
+        }
+    } catch (e) {}
+    return out;
+}
+let records = loadRecords();
+function saveRecords() { try { localStorage.setItem(RECORDS_KEY, JSON.stringify(records)); } catch (e) {} }
+let maxDistThisRun = 0;
+let deathReason = '';
+// 판이 끝날 때 한 번. isNew 는 "이전 기록이 있었고 그걸 넘었을 때"만 true — 첫 판은 전부 신기록이라 의미가 없다.
+function commitRecords() {
+    const prev = Object.assign({}, records);
+    const cur = {
+        dist: Math.floor(maxDistThisRun), stage: stageIndex + 1, combo: bestComboThisRun,
+        balls: ballCountPeak, cubes: cubesBrokenThisRun,
+    };
+    const isNew = {};
+    for (const k in cur) {
+        isNew[k] = prev[k] > 0 && cur[k] > prev[k];
+        if (cur[k] > records[k]) records[k] = cur[k];
+    }
+    saveRecords();
+    return { prev, cur, isNew };
+}
+
+// ---- 스테이지 아치: 스테이지 경계를 도로 위의 "지나갈 문"으로 만든다(충돌 없음) ----
+// 빔은 카메라(높이 4.5~5.3)보다 위에 둔다 → 하늘 쪽에 보이다가 머리 위로 지나가고, 도로 위 숫자를 가리지 않는다.
+const STAGE_GATE_LEAD = 3.0;   // 경계 3초 전에 세운다
+const stageGate = { active: false, z: 0, idx: 0 };
+const archMat = new THREE.MeshStandardMaterial({ color: 0x63f8cf, emissive: 0x63f8cf, emissiveIntensity: 0.9, roughness: 0.3 });
+const stageArch = new THREE.Group();
+const ARCH_HALF_W = ROAD_WIDTH / 2 + 0.45;
+const ARCH_H = 6.0;
+{
+    const pillarGeo = new THREE.BoxGeometry(0.3, ARCH_H, 0.3);
+    for (const sx of [-1, 1]) {
+        const p = new THREE.Mesh(pillarGeo, archMat);
+        p.position.set(sx * ARCH_HALF_W, ARCH_H / 2, 0);
+        stageArch.add(p);
+    }
+    const beam = new THREE.Mesh(new THREE.BoxGeometry(ARCH_HALF_W * 2 + 0.3, 0.35, 0.3), archMat);
+    beam.position.y = ARCH_H;
+    stageArch.add(beam);
+}
+function makeLabelSprite(w, h) {
+    const canvas = document.createElement('canvas');
+    canvas.width = 256; canvas.height = 64;
+    const texture = new THREE.CanvasTexture(canvas);
+    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, transparent: true }));
+    sprite.scale.set(w, h, 1);
+    return { canvas, texture, sprite, text: '' };
+}
+function setLabel(label, text, cssColor) {
+    if (label.text === text + cssColor) return;
+    label.text = text + cssColor;
+    const ctx = label.canvas.getContext('2d');
+    ctx.clearRect(0, 0, 256, 64);
+    ctx.font = '900 40px Arial';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.lineJoin = 'round';
+    ctx.strokeStyle = 'rgba(0,0,0,0.85)'; ctx.lineWidth = 8;
+    ctx.strokeText(text, 128, 34);
+    ctx.fillStyle = cssColor;
+    ctx.fillText(text, 128, 34);
+    label.texture.needsUpdate = true;
+}
+const archLabel = makeLabelSprite(3.6, 0.9);
+archLabel.sprite.position.y = ARCH_H + 0.8;
+stageArch.add(archLabel.sprite);
+stageArch.visible = false;
+scene.add(stageArch);
+
+// ---- 최장 거리 선: 지난 최고 지점이 도로 위에 금색 선으로 다가온다 ----
+const BEST_LINE_MIN_DIST = 80;     // 이보다 짧은 기록은 선을 깔지 않는다(시작하자마자 지나가 버린다)
+const BEST_LINE_SHOW_DIST = 90;
+const BEST_CHASE_HUD_DIST = 200;
+const bestLine = { active: false, z: 0, crossed: false };
+const bestLineGroup = new THREE.Group();
+{
+    const stripGeo = new THREE.PlaneGeometry(ROAD_WIDTH, 0.6);
+    stripGeo.rotateX(-Math.PI / 2);
+    const strip = new THREE.Mesh(stripGeo, new THREE.MeshBasicMaterial({ color: 0xffd23f, transparent: true, opacity: 0.9 }));
+    strip.position.y = 0.03;
+    bestLineGroup.add(strip);
+    const poleMat = new THREE.MeshStandardMaterial({ color: 0xffd23f, emissive: 0xffa500, emissiveIntensity: 0.9 });
+    const poleGeo = new THREE.BoxGeometry(0.1, 2.6, 0.1);
+    for (const sx of [-1, 1]) {
+        const p = new THREE.Mesh(poleGeo, poleMat);
+        p.position.set(sx * (ROAD_WIDTH / 2 + 0.25), 1.3, 0);
+        bestLineGroup.add(p);
+    }
+}
+const bestLabel = makeLabelSprite(3.0, 0.75);
+bestLabel.sprite.position.set(0, 3.1, 0);
+bestLineGroup.add(bestLabel.sprite);
+bestLineGroup.visible = false;
+scene.add(bestLineGroup);
+let _chaseText = '';
+function setChaseHUD(text) {
+    if (text === _chaseText) return;
+    _chaseText = text;
+    const el = document.getElementById('best-chase');
+    if (!el) return;
+    el.textContent = text;
+    el.style.display = text ? 'block' : 'none';
+}
+
+// 매 프레임(플레이 중): 최대 거리 갱신 · 아치 세우기/통과 · 최장 거리 선 표시/통과.
+function updateRunMarkers() {
+    if (playerWorldZ > maxDistThisRun) maxDistThisRun = playerWorldZ;
+
+    if (!stageGate.active) {
+        const remain = STAGE_SECONDS * (stageIndex + 1) - gameTimer;
+        if (remain <= STAGE_GATE_LEAD) {
+            stageGate.active = true;
+            stageGate.idx = stageIndex + 1;
+            stageGate.z = playerWorldZ + velocity.z * Math.max(0.5, remain);
+            const pal = PALETTES[stageGate.idx % PALETTES.length];
+            archMat.color.set(pal.border); archMat.emissive.set(pal.border);
+            setLabel(archLabel, 'STAGE ' + (stageGate.idx + 1), '#ffffff');
+            stageArch.position.set(0, 0, stageGate.z);
+            stageArch.visible = true;
+        }
+    } else if (playerWorldZ >= stageGate.z) {
+        stageGate.active = false;
+        stageArch.visible = false;
+        for (const sx of [-1, 1]) {
+            _popV.set(sx * ARCH_HALF_W, 1.5, playerWorldZ + 2);
+            spawnParticles(_popV, archMat.color, 6);
+        }
+        cameraShake = Math.max(cameraShake, 0.15);
+        advanceStage(stageGate.idx);
+    }
+
+    if (bestLine.active) {
+        const d = bestLine.z - playerWorldZ;
+        if (!bestLine.crossed) {
+            bestLineGroup.visible = d < BEST_LINE_SHOW_DIST;
+            if (d <= -1) {   // 기록은 floor(maxDist) > prev 일 때만 갱신 → 1m 넘어야 실제 신기록
+                bestLine.crossed = true;
+                bestLineGroup.visible = false;
+                showBanner('NEW RECORD!', 'FARTHEST RUN', '#ffd23f');
+                playSound('highscore');
+                spawnParticles(mainBallGroup.position, GOLD_COLOR, 12);
+                if (window.SB) SB.vibrate('success');
+            } else {
+                setChaseHUD(d <= BEST_CHASE_HUD_DIST ? '🏁 ' + Math.ceil(d) + ' m' : '');
+            }
+        }
+        if (bestLine.crossed) setChaseHUD('★ +' + Math.max(0, Math.floor(-d)) + ' m');
+    }
+}
+
+function hideRunMarkers() {
+    stageGate.active = false;
+    stageArch.visible = false;
+    bestLineGroup.visible = false;
+    setChaseHUD('');
+    ballScaleCur = 1; ballPunch = 0;
+    applyBallScale();
+    // 메뉴 배경: 카메라가 큰 공 기준 후퇴 위치에 남지 않게 기본 위치로
+    camera.position.set(mainBallGroup.position.x * 0.4, 4.5, playerWorldZ - 5.5);
+    camera.lookAt(mainBallGroup.position.x * 0.3, 0.5, playerWorldZ + 12);
+    skyMesh.position.copy(camera.position);
+}
+// 새 판 시작 시(헤드스타트 반영 뒤) 호출.
+function resetF2RunState() {
+    sizeTier = sizeTierPeak = tierFor(ballCount, 0);   // 시작 공 수(헤드스타트 16개 포함)의 단계는 축하 없이 시작값
+    ballScaleCur = SIZE_TIERS[sizeTier].scale;
+    ballPunch = 0; auraTimer = 0;
+    applyBallScale();
+    for (const s of shards) { s.active = false; s.mesh.visible = false; }
+    const host = document.getElementById('score-popups');
+    if (host) host.querySelectorAll('.score-popup.world').forEach(el => el.remove());
+    feverWarnStep = 0;
+    setFeverLook(false);
+    stageGate.active = false;
+    stageArch.visible = false;
+    maxDistThisRun = 0;
+    deathReason = '';
+    bestLine.active = records.dist >= BEST_LINE_MIN_DIST;
+    bestLine.z = records.dist;
+    bestLine.crossed = false;
+    bestLineGroup.visible = false;
+    bestLineGroup.position.set(0, 0, bestLine.z);
+    if (bestLine.active) setLabel(bestLabel, 'BEST ' + records.dist + 'm', '#ffd23f');
+    setChaseHUD('');
+    scoreDisplay.classList.remove('best');
 }
 
 // ============================================================
@@ -3699,6 +4108,8 @@ function spawnCube(z, lane, cubeType, level, yLevel) {
     cube.active = true;
     cube.shakeTimer = 0;
     cube.rowId = 0;
+    cube.wipeT = 0;
+    cube.ghost = false;
     cube.mesh.scale.set(1, 1, 1);
 
     if (type === IRON_CUBE_TYPE) {
@@ -3771,6 +4182,8 @@ function spawnBar(z, kind, opts = {}) {
     bar.blinkT = 0;
     bar.on = true;
     bar.hit = false;
+    bar.rowId = 0;      // 풀 재사용 — 예전 판 게이트 빔의 rowId 가 남으면 엉뚱한 줄 전멸에 휩쓸린다
+    bar.wipeT = 0;
     bar.sweep = 0;
     bar.sweepDir = Math.random() < 0.5 ? 1 : -1;
 
@@ -3850,7 +4263,8 @@ function spawnPatternAt(z) {
             }
             // 비싼 칸을 부순 사람에게 코인 — 점수 루트와 상점 루트를 같은 방향으로 묶는다.
             if (bigLane >= 0) for (let i = 0; i < 3; i++) spawnCoin(z + 1.6 + i * 1.3, bigLane);
-            spawnBar(z, BAR_OVERHEAD, { gate: true });
+            const gateBar = spawnBar(z, BAR_OVERHEAD, { gate: true });
+            if (gateBar) gateBar.rowId = rowId;
             // 줄 뒤 여유 = 속도 비례(≈0.8초). 다음 줄까지 차선을 옮길 시간이 있어야 선택이 된다.
             extra += Math.max(6, velocity.z * 0.8);
             break;
@@ -4158,6 +4572,7 @@ function checkCollisions() {
         // 한 줄에서 한 칸을 부쉈으면 그 줄의 나머지 칸은 통과 — 줄을 비스듬히 지나며 두 칸을
         // 연달아 맞아 죽는 일을 막는다("초록을 깼는데 옆 빨강에 죽었다").
         if (cube.rowId && cube.rowId === passedRowId) continue;
+        if (cube.ghost && !safe) continue;   // F2: 이미 터진(보이지 않는) 칸 — 무적 공만 득점 판정을 받는다
         const dx = Math.abs(ballPos.x - cube.mesh.position.x);
         const dy = Math.abs(ballPos.y - cube.mesh.position.y);
         const dz = Math.abs(ballPos.z - cube.mesh.position.z);
@@ -4182,6 +4597,9 @@ function checkCollisions() {
                 cube.mesh.visible = false;
                 playSound('breakCube');
                 cameraShake = Math.min(cameraShake + 0.05, 0.3);
+                if (!cube.ghost) spawnShards(cube.mesh.position, cube.mesh.material.color, 4);
+                // F2: 메가(피버) 상태면 같은 줄의 나머지 칸이 번지며 터진다 — 연출 전용.
+                if (megaBallTimer > 0 && cube.rowId && !(cube.wipeT > 0) && !cube.ghost) wipeRow(cube);
                 continue;
             }
 
@@ -4191,6 +4609,7 @@ function checkCollisions() {
                     consumeShield(cube);
                     continue;
                 }
+                deathReason = "Iron cubes can't be smashed — steer around them";
                 playSound('ironCube');
                 cameraShake = 0.5;
                 // 나머지 세 사망 지점(레이저·바 침식·큐브 과충돌)은 전부 파티클을 뿌리는데
@@ -4215,6 +4634,9 @@ function checkCollisions() {
                 score += gained;
                 showScorePopup(gained);
                 spawnParticles(cube.mesh.position, cube.mesh.material.color, 12);
+                spawnShards(cube.mesh.position, cube.mesh.material.color, 6);
+                showWorldPopup('−' + cost, '#ff8a2a');   // 낸 공
+                ballPunch = Math.max(ballPunch, 0.16);
                 cube.active = false;
                 cube.mesh.visible = false;
                 playSound('breakCube');
@@ -4227,6 +4649,8 @@ function checkCollisions() {
                 consumeShield(cube);
             } else {
                 // Not enough balls - bounce back, offer revive / game over
+                // (원인 문구는 hp·공 수를 깎기 **전에** 잡는다)
+                deathReason = 'That cube needed ' + (cube.hp + 1) + ' balls — you had ' + ballCount;
                 cube.hp -= ballCount;
                 ballCount = 0;
                 updateCubeText(cube);
@@ -4343,6 +4767,7 @@ function checkCollisions() {
         bar.hit = true; // debounce so one contact doesn't fire every frame
         if (bar.deadly) {
             // Laser — instant death.
+            deathReason = 'Lasers are deadly — jump over, or pass while dark';
             playSound('ironCube');
             cameraShake = 0.5;
             spawnParticles(ballPos.clone(), new THREE.Color(1, 0.2, 0.2), 14);
@@ -4351,6 +4776,11 @@ function checkCollisions() {
             return;
         }
         // Erosion hazard: peel off a big chunk of balls + shove back. Empties → death.
+        deathReason = bar.kind === BAR_HURDLE ? 'Jump the yellow hurdles — a hit costs 45% of your balls (at least 4)'
+            : bar.kind === BAR_SWEEPER ? 'The sliding bar costs 45% of your balls (at least 4) — slip past its open side'
+            : bar.rowId ? 'Jumping a smash row costs 45% of your balls (at least 4) — smash a cube instead'
+            : 'Stay low under pink bars — a hit costs 45% of your balls (at least 4)';
+        showWorldPopup('−' + Math.min(ballCount, erosionLoss), '#ff2d55');
         ballCount = Math.max(0, ballCount - erosionLoss);
         mainBallGroup.position.z = bz - bar.halfD - ballRadius - HIT_BACK_DISTANCE;
         playerWorldZ = mainBallGroup.position.z;
@@ -4369,6 +4799,8 @@ function checkCollisions() {
         const dist = ballPos.distanceTo(item.mesh.position);
         if (dist < 0.65 + ballRadius) {
             ballCount += item.count;
+            showWorldPopup('+' + item.count, '#3dff8a');   // 얻은 공
+            ballPunch = Math.max(ballPunch, 0.2);
             item.active = false;
             item.mesh.visible = false;
             playSound('getItem');
@@ -4615,6 +5047,7 @@ function activateMegaBall() {
     }
     megaBallTimer = MEGA_BALL_DURATION;
     megaBallMesh.visible = true;
+    feverWarnStep = 0;   // 재발동이면 경고음도 다시
 }
 
 // ============================================================
@@ -4654,13 +5087,14 @@ function moveFollowingBalls(dt) {
         const histIdx = posHistoryIndex - 1 - delay;
 
         if (histIdx >= 0) {
-            const targetX = xHistory[histIdx % POS_HISTORY_SIZE];
+            // F2: 한 줄 꼬리 → 좌우로 엇갈린 두 줄(같은 30개가 더 두툼한 무리로 보인다).
+            const targetX = xHistory[histIdx % POS_HISTORY_SIZE] + ((i % 2) ? 0.2 : -0.2);
             const targetY = yHistory[histIdx % POS_HISTORY_SIZE];
             pos.x = pos.x + (targetX - pos.x) * lerpSpeed;
             pos.y = pos.y + (targetY - pos.y) * lerpSpeed;
         }
 
-        pos.z = mainBallGroup.position.z - 0.2 - 0.15 * i;
+        pos.z = mainBallGroup.position.z - 0.1 - 0.3 * ballScaleCur - 0.12 * i;
     }
 }
 
@@ -4933,7 +5367,9 @@ function quitToMenu() {
         // 네이티브 리더보드(Game Center / Play Games)에도 추가 제출
         SB.submitNativeScore && SB.submitNativeScore(finalScore);
     }
-    if (finalScore > bestScore) { bestScore = finalScore; localStorage.setItem('snakeball_best', bestScore.toString()); }
+    // setItem 은 저장소가 꽉 차거나 막혀 있으면 던진다 — 여기서 던지면 goHome() 에 못 가 버튼 없는 화면에 갇힌다.
+    if (finalScore > bestScore) { bestScore = finalScore; try { localStorage.setItem('snakeball_best', bestScore.toString()); } catch (e) {} }
+    commitRecords();
     goHome();
 }
 pauseBtn.addEventListener('click', pauseGame);
@@ -4949,6 +5385,7 @@ function updateUI() {
     ballCountDisplay.textContent = 'BALLS: ' + ballCount;
     ballCountDisplay.style.display = '';
     if (ballCount > ballCountPeak) ballCountPeak = ballCount;
+    updateSizeTier();
     updateBallCountSprite();
     refreshCubeColors(false);
 
@@ -4973,7 +5410,9 @@ function updateUI() {
 function updateBestScoreDisplay() {
     const el = document.getElementById('best-score-display');
     if (bestScore > 0) {
-        el.textContent = 'BEST: ' + bestScore;
+        el.textContent = 'BEST: ' + bestScore
+            + (records.stage > 0 ? ' · STAGE ' + records.stage : '')
+            + (records.dist > 0 ? ' · ' + records.dist + ' m' : '');
     } else {
         el.textContent = '';
     }
@@ -5032,6 +5471,8 @@ function startGame() {
 function goHome() {
     gameState = 'menu';
     bgmStop();
+    setFeverLook(false);   // 피버 중 일시정지 → 퇴장해도 차선 발광·화면 테두리가 남지 않게
+    hideRunMarkers();      // 아치·최장 거리 선·커진 공이 메뉴 배경에 비치지 않게
     pauseBtn.style.display = 'none';
     pauseScreen.style.display = 'none';
     resultScreen.style.display = 'none';
@@ -5095,6 +5536,7 @@ function resetGameState() {
     magnetActive = !!armed.magnet;
     shieldActive = !!armed.shield;
     if (armed.headstart) ballCount += 8;
+    resetF2RunState();
     document.getElementById('run-coins-amount').textContent = '0';
 
     mainBallGroup.position.set(0, BALL_GROUND_Y, 0);
@@ -5159,10 +5601,12 @@ function finalizeGameOver() {
     const finalScore = score + Math.floor(gameTimer);
     document.getElementById('final-score').textContent = finalScore;
 
+    const prevBest = bestScore;   // 아래에서 덮어쓰기 전 값 — 결과 화면의 "최고 대비" 계산용
     const isBest = finalScore > bestScore;
     if (isBest) {
         bestScore = finalScore;
-        localStorage.setItem('snakeball_best', bestScore.toString());
+        // 저장 실패(용량·차단)로 던지면 결과 화면이 영영 안 뜬다 — 기록 저장은 실패해도 판은 끝나야 한다.
+        try { localStorage.setItem('snakeball_best', bestScore.toString()); } catch (e) {}
         // 'block', not '' — the stylesheet sets #new-best{display:none}, so clearing the
         // inline value just lets that rule win and the banner has never once rendered.
         document.getElementById('new-best').style.display = 'block';
@@ -5208,15 +5652,8 @@ function finalizeGameOver() {
     // ---- 네이티브 리더보드(Game Center / Play Games)에도 추가 제출 ----
     window.SB && SB.submitNativeScore && SB.submitNativeScore(finalScore);
 
-    // Result extra line (best combo / mission hint)
-    const extra = document.getElementById('result-extra');
-    extra.innerHTML = '';
-    const bits = [];
-    if (bestComboThisRun >= 3) bits.push('🔥 Best combo: ' + bestComboThisRun + 'x');
-    if (isBest) bits.push('🏆 New best score!');
-    if (bits.length) {
-        extra.innerHTML = '<div style="color:#8a8aa8;font-size:13px;text-align:center">' + bits.join(' · ') + '</div>';
-    }
+    // F2: 결과 화면 — 왜 죽었나 · 최고 대비 얼마나 왔나 · 어디까지 갔나 · 이번 판 신기록.
+    renderResultExtra(finalScore, prevBest, isBest, commitRecords());
 
     // Double-coins button setup
     const dbl = document.getElementById('double-coins');
@@ -5238,6 +5675,41 @@ function finalizeGameOver() {
     // 1500ms 는 죽음 → 결과 사이의 죽은 시간이었다. 공 흩날리는 연출은 앞 0.5s 에
     // 다 읽히고, 부활 화면이 사라진 지금은 이 대기가 그대로 체감 지연이 된다.
     }, 700);
+}
+
+// 결과 화면 본문. 표시하는 수치는 전부 이번 판의 실제 값이다(꾸며낸 "거의" 는 없다).
+// innerHTML 에 들어가는 건 숫자와 고정 문구뿐 — 사용자 입력 문자열은 없다.
+const SO_CLOSE_RATIO = 0.85, SO_CLOSE_MIN_BEST = 50;
+function renderResultExtra(finalScore, prevBest, isBest, rec) {
+    const h2 = resultScreen.querySelector('h2');
+    const nearBest = !isBest && prevBest >= SO_CLOSE_MIN_BEST && finalScore >= prevBest * SO_CLOSE_RATIO;
+    if (h2) h2.textContent = isBest ? 'NEW BEST!' : rec.isNew.dist ? 'FARTHEST RUN!' : nearBest ? 'SO CLOSE!' : 'GAME OVER';
+    const nb = document.getElementById('new-best');
+    if (nb && isBest) nb.style.display = 'none';   // 제목이 이미 말한다 — 같은 문구 두 번 금지
+    const extra = document.getElementById('result-extra');
+    if (!extra) return;
+    const bar = (cls, pct, left, right) =>
+        '<div class="rx-row"><div class="rx-label"><span>' + left + '</span><span>' + right + '</span></div>' +
+        '<div class="rx-bar ' + cls + '"><div style="width:' + pct + '%"></div></div></div>';
+    let html = '';
+    if (deathReason) html += '<div class="rx-why">' + deathReason + '</div>';
+    if (prevBest > 0) {
+        const pct = Math.max(0, Math.min(100, Math.round(finalScore / prevBest * 100)));
+        html += isBest
+            ? bar('', 100, '🏆 +' + (finalScore - prevBest) + ' over your old best', '')
+            : bar('', pct, (prevBest - finalScore + 1) + ' more to beat your best', pct + '%');
+    }
+    // 아치는 경계 시각 ±1초쯤에 지나므로 통과 전에는 99% 에서 멈춘다("100% 인데 STAGE 1" 방지).
+    const stagePct = Math.min(99, Math.round(Math.max(0, (gameTimer - STAGE_SECONDS * stageIndex) / STAGE_SECONDS) * 100));
+    html += bar('stage', stagePct, 'STAGE ' + rec.cur.stage + ' · ' + rec.cur.dist + ' m', stagePct + '% to STAGE ' + (rec.cur.stage + 1));
+    const chips = [];
+    if (rec.isNew.dist) chips.push('FARTHEST ' + rec.cur.dist + ' m');
+    if (rec.isNew.stage) chips.push('STAGE ' + rec.cur.stage);
+    if (rec.isNew.combo) chips.push('COMBO ' + rec.cur.combo + 'x');
+    if (rec.isNew.balls) chips.push(rec.cur.balls + ' BALLS');
+    if (rec.isNew.cubes) chips.push(rec.cur.cubes + ' CUBES');
+    if (chips.length) html += '<div class="rx-chips">' + chips.map(c => '<span class="rx-chip">NEW · ' + c + '</span>').join('') + '</div>';
+    extra.innerHTML = html;
 }
 
 async function doubleCoins() {
@@ -5378,12 +5850,29 @@ function applyRoadCurve() {
         bar.mesh.position.x = bar.originalPos.x + curveX * bend;
         bar.mesh.position.y = bar.originalPos.y + curveY * bend;
     }
+    if (stageArch.visible) {
+        const bend = getCurveBend(stageGate.z - ballZ);
+        stageArch.position.set(curveX * bend, curveY * bend, stageGate.z);
+    }
+    if (bestLineGroup.visible) {
+        const bend = getCurveBend(bestLine.z - ballZ);
+        bestLineGroup.position.set(curveX * bend, curveY * bend, bestLine.z);
+    }
 }
 
 // Animate the bar hazards: sweepers slide, blinking lasers pulse on/off.
 function updateBars(dt) {
     for (const bar of bars) {
         if (!bar.active) continue;
+        if (bar.wipeT > 0) {   // F2: 피버 줄 전멸에 휩쓸린 게이트 빔
+            bar.wipeT -= dt;
+            if (bar.wipeT <= 0) {
+                bar.wipeT = 0;
+                spawnParticles(bar.mesh.position, bar.mesh.material.color, 6);
+                bar.active = false; bar.mesh.visible = false;
+                continue;
+            }
+        }
         if (bar.kind === BAR_SWEEPER) {
             bar.originalPos.x += bar.sweep * bar.sweepDir * dt;
             if (bar.originalPos.x >= bar.sweepMax) { bar.originalPos.x = bar.sweepMax; bar.sweepDir = -1; }
@@ -5601,18 +6090,19 @@ function setStageInstant(idx) {
     paletteT = 1;
     applyPalette(paletteTo, paletteTo, 1);
 }
+// F2: 스테이지는 시간 경계가 아니라 **아치를 통과하는 순간** 오른다(updateRunMarkers 가 호출).
+// 아치는 경계 3초 전에 "그 시점 속도 × 남은 시간" 앞에 세우므로 전환 시각은 여전히 25초 배수 근처다.
+function advanceStage(idx) {
+    stageIndex = idx;
+    const pal = PALETTES[idx % PALETTES.length];
+    paletteFrom = { top: skyUniforms.topColor.value.getHex(), horizon: skyUniforms.horizonColor.value.getHex(),
+                    lane: roadLineMaterial.color.getHex(), border: borderMats[0] ? borderMats[0].color.getHex() : pal.border };
+    paletteTo = pal; paletteT = 0;
+    showBanner('STAGE ' + (idx + 1), pal.name, '#' + new THREE.Color(pal.border).getHexString());
+    playNotes([523.25, 659.25, 783.99, 1046.5], 0.085, 'triangle', 0.1);
+    if (window.SB) SB.vibrate('medium');
+}
 function updateStage(dt) {
-    const idx = Math.floor(gameTimer / STAGE_SECONDS);
-    if (idx !== stageIndex) {
-        stageIndex = idx;
-        const pal = PALETTES[idx % PALETTES.length];
-        paletteFrom = { top: skyUniforms.topColor.value.getHex(), horizon: skyUniforms.horizonColor.value.getHex(),
-                        lane: roadLineMaterial.color.getHex(), border: borderMats[0] ? borderMats[0].color.getHex() : pal.border };
-        paletteTo = pal; paletteT = 0;
-        showBanner('STAGE ' + (idx + 1), pal.name, '#' + new THREE.Color(pal.border).getHexString());
-        playSound('getItem');
-        if (window.SB) SB.vibrate('medium');
-    }
     if (paletteT < 1) {
         paletteT = Math.min(1, paletteT + dt / 1.2);
         applyPalette(paletteFrom, paletteTo, paletteT);
@@ -5865,17 +6355,24 @@ function update() {
             // 정상 플레이는 초당 10~30 이라 그 근처에 가지 않는다.
             if (score > SCORE_RAIL_PER_SEC * gameTimer + 100) score = Math.floor(SCORE_RAIL_PER_SEC * gameTimer + 100);
             updateStage(dt);
+            // F2: 점수 신기록은 배너 대신 점수 숫자를 금색으로 — 배너는 도로 위 최장 거리 선이 쓴다(둘이 겹치지 않게).
             if (!newBestShown && bestScore > 0 && score + Math.floor(gameTimer) > bestScore) {
                 newBestShown = true;
-                showBanner('NEW BEST!', 'KEEP ROLLING', '#ffd23f');
+                scoreDisplay.classList.add('best');
                 if (window.SB) SB.vibrate('success');
             }
+            updateRunMarkers();
         }
 
         // Mega ball timer
         if (megaBallTimer > 0) {
             megaBallTimer -= dt;
             megaFlickerTimer -= dt;
+            // F2: 끝나기 직전 하강음 3번 — 무적이 풀리는 순간을 귀로 알린다.
+            if (megaBallTimer > 0 && feverWarnStep < FEVER_WARN_AT.length && megaBallTimer <= FEVER_WARN_AT[feverWarnStep]) {
+                playNotes([880 - feverWarnStep * 180], 0.06, 'square', 0.06);
+                feverWarnStep++;
+            }
 
             if (megaBallTimer <= 0) {
                 megaBallMesh.visible = false;
@@ -5899,6 +6396,8 @@ function update() {
             }
         }
 
+        setFeverLook(megaBallTimer > 0);
+
         // Ball flicker (when collecting items)
         if (flickerTimer > 0) {
             flickerTimer -= dt;
@@ -5920,6 +6419,10 @@ function update() {
         const pulseTime = Date.now() * 0.005;
         for (const cube of cubes) {
             if (!cube.active) continue;
+            if (cube.wipeT > 0) {   // F2: 피버 줄 전멸 — 지연이 끝나면 터진다
+                cube.wipeT -= dt;
+                if (cube.wipeT <= 0) { cube.wipeT = 0; popWipedCube(cube); continue; }
+            }
             if (cube.shakeTimer > 0) {
                 cube.shakeTimer -= dt;
                 if (cube.shakeTimer > 0) {
@@ -5997,6 +6500,15 @@ function update() {
             if (fb.active) fb.mesh.rotateOnWorldAxis(WORLD_X, velocity.z * dt * fb.rollSpeed);
         }
 
+        // F2: 크기 단계 스케일(부드럽게 따라감) + 타격 펀치. 최상위 단계는 금색 입자.
+        ballScaleCur += (SIZE_TIERS[sizeTier].scale - ballScaleCur) * Math.min(1, dt * 8);
+        if (ballPunch > 0) ballPunch = Math.max(0, ballPunch - dt * 2.2);
+        applyBallScale();
+        if (sizeTier === SIZE_TIERS.length - 1 && gameState === 'playing') {
+            auraTimer -= dt;
+            if (auraTimer <= 0) { auraTimer = 0.2; spawnParticles(mainBallGroup.position, GOLD_COLOR, 1); }
+        }
+
         // Update road curve
         if (gameState === 'playing') {
             updateRoadCurve(dt);
@@ -6024,11 +6536,13 @@ function update() {
         const shakeY = cameraShake * (Math.random() - 0.5) * 2;
 
         // Update camera to follow ball
-        const camTargetZ = playerWorldZ - 5.5;
+        // F2: 공이 커질수록 카메라가 조금 물러나고 올라간다(카타마리식 — 최대 −1.2 / +0.8).
+        const tierSmooth = (ballScaleCur - 1) / 0.12;
+        const camTargetZ = playerWorldZ - 5.5 - 0.24 * tierSmooth;
         camera.position.z = camTargetZ;
         camera.position.x += (mainBallGroup.position.x * 0.4 - camera.position.x) * dt * 6;
         camera.position.x += shakeX;
-        camera.position.y = 4.5 + shakeY;
+        camera.position.y = 4.5 + 0.16 * tierSmooth + shakeY;
         camera.lookAt(mainBallGroup.position.x * 0.3, 0.5, playerWorldZ + 12);
         skyMesh.position.copy(camera.position);
 
@@ -6056,6 +6570,7 @@ function update() {
         }
     }
 
+    updateShards(dt);
     updateParticles(dt);
     renderer.render(scene, camera);
 }
