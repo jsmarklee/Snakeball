@@ -3459,8 +3459,10 @@ function spawnCoin(z, lane) {
 const particles = [];
 const PARTICLE_POOL_SIZE = 80;
 for (let i = 0; i < PARTICLE_POOL_SIZE; i++) {
+    // transparent 는 생성 시 고정한다(첫 표시 전에 updateParticles 가 켜던 값과 같다) — 시작 프리워밍이
+    // 실제로 쓰일 셰이더 변형(OPAQUE 아님)을 컴파일하게.
     const mesh = new THREE.Mesh(particleGeometry, new THREE.MeshStandardMaterial({
-        roughness: 0.3, emissiveIntensity: 0.5
+        roughness: 0.3, emissiveIntensity: 0.5, transparent: true
     }));
     mesh.visible = false;
     scene.add(mesh);
@@ -4587,7 +4589,6 @@ function updateParticles(dt) {
         p.mesh.position.y += p.vel.y * dt;
         p.mesh.position.z += p.vel.z * dt;
         p.mesh.material.opacity = Math.max(0, p.life);
-        p.mesh.material.transparent = true;
     }
 }
 
@@ -6628,7 +6629,12 @@ function update() {
 
     updateShards(dt);
     updateParticles(dt);
-    renderer.render(scene, camera);
+    const warmDraw = shaderWarm !== null && attachShaderWarm();
+    try {
+        renderer.render(scene, camera);
+    } finally {
+        if (warmDraw) endShaderWarm();   // 워밍 그룹은 렌더 한 번만 — 씬에 남기지 않는다
+    }
 }
 
 function moveBall(dt, tutorialMode) {
@@ -6700,7 +6706,70 @@ window.addEventListener('resize', () => {
     renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
+// ============================================================
+// FIRST-IMPACT SHADER PREWARM (menu only)
+// 실기 iPad: 첫 큐브 파괴 때 파티클·파편 셰이더가 처음 쓰이며 r160 의 프로그램 조회(getUniforms 등)가
+// 링크 완료를 동기로 기다려 ~800ms 멈췄다(의도된 hitStop 과는 별개). 메뉴에서 같은 재질·지오메트리를
+// 공유하는 복제 메시 1개씩을 renderer.compile 로 비동기 컴파일해 두고, KHR_parallel_shader_compile 의
+// isReady() 가 참이 된 뒤에만 기존 렌더 한 번에 끼워 그린다. 메뉴를 떠나거나·1.5초가 지나거나·
+// 컨텍스트를 잃으면 그냥 버린다(동기 대체 경로 없음). API 가 없거나 실패해도 조용히 건너뛴다.
+// ============================================================
+const SHADER_WARM_MAX_MS = 1500;
+let shaderWarm = null;   // { group, mats, until } — 메뉴에서 대기 중인 워밍 작업
+function startShaderWarm() {
+    try {
+        if (document.hidden || gameState !== 'menu' || renderer.getContext().isContextLost()) return;
+        if (typeof renderer.compile !== 'function' || !renderer.properties || !renderer.extensions
+            || !renderer.extensions.has('KHR_parallel_shader_compile')) return;
+        const group = new THREE.Group();
+        for (const src of [particles[0].mesh, shards[0].mesh]) {
+            const m = src.clone();   // material·geometry 는 원본과 같은 객체(공유 — dispose 금지)
+            m.visible = true;
+            m.frustumCulled = false;
+            m.castShadow = m.receiveShadow = false;
+            m.position.set(0, -10000, 0);   // 카메라 밖 — 그려져도 화면에 안 나온다
+            group.add(m);
+        }
+        const mats = group.children.map(m => m.material);
+        renderer.compile(group, camera, scene);
+        for (const mat of mats) {
+            const prog = renderer.properties.get(mat).currentProgram;
+            if (!prog || typeof prog.isReady !== 'function') { group.clear(); return; }
+        }
+        shaderWarm = { group, mats, until: performance.now() + SHADER_WARM_MAX_MS };
+    } catch (e) { shaderWarm = null; }
+}
+// update() 의 렌더 직전에 호출. 준비됐으면 그룹을 씬에 붙이고 true(이번 렌더 한 번만).
+function attachShaderWarm() {
+    try {
+        const gl = renderer.getContext();   // 한 번만 얻는다
+        if (document.hidden || gameState !== 'menu' || performance.now() > shaderWarm.until
+            || gl.isContextLost()) { endShaderWarm(); return false; }
+        const mats = shaderWarm.mats;
+        for (const mat of mats) {
+            if (!renderer.properties.get(mat).currentProgram.isReady()) return false;   // 아직 컴파일 중 — 다음 프레임
+        }
+        // isReady() 는 "끝났다"일 뿐 성공이 아니다(링크 실패도 true). 전부 끝난 뒤에만 LINK_STATUS 를 조회한다
+        // (완료 전 조회는 동기 대기를 유발). 하나라도 실패면 워밍 그룹을 씬에 붙이지 않고 취소한다.
+        for (const mat of mats) {
+            if (!gl.getProgramParameter(renderer.properties.get(mat).currentProgram.program, gl.LINK_STATUS)) {
+                endShaderWarm();
+                return false;
+            }
+        }
+        scene.add(shaderWarm.group);
+        return true;
+    } catch (e) { endShaderWarm(); return false; }
+}
+function endShaderWarm() {
+    if (!shaderWarm) return;
+    scene.remove(shaderWarm.group);
+    shaderWarm.group.clear();
+    shaderWarm = null;
+}
+
 // Start render loop
+startShaderWarm();
 update();
 </script>
 </body>
