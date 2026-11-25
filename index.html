@@ -250,6 +250,24 @@ canvas { display: block; width: 100%; height: 100%; }
     15% { opacity: 1; transform: translate(-50%, -60%) scale(1.25); }
     100% { opacity: 0; transform: translate(-50%, -190%) scale(1); }
 }
+/* F2: 피버 줄 전멸의 직접 타격 득점 배지("HIT +N") — 큐브 바로 위, 5px 간격 = 아래 꼬리(5px) 끝이 투영 접점에 닿음. 튐 없이 0.35초 유지 후 페이드 */
+.score-popup.award {
+    font-size: 14px; font-weight: 800; line-height: 1.2; white-space: nowrap;
+    color: #ffd23f; background: #0d0e1a; border: 1.5px solid #ffd23f; border-radius: 6px;
+    padding: 2px 7px; text-shadow: none; pointer-events: none;
+    transform: translate(-50%, calc(-100% - 5px));
+    animation: awardFade 0.65s linear forwards;
+}
+.score-popup.award::after {
+    content: ''; position: absolute; left: 50%; top: 100%; margin-left: -5px;
+    border: 5px solid transparent; border-top-color: #ffd23f; border-bottom-width: 0;
+    pointer-events: none;
+}
+@keyframes awardFade {
+    0%, 53.8% { opacity: 1; }
+    100% { opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) { .score-popup.award { animation: none; opacity: 1; } }
 #score-display.best { color: #ffd23f; text-shadow: 0 0 14px rgba(255,210,63,0.9); }
 /* F2: 최장 거리 선까지 남은 거리 */
 #best-chase {
@@ -3006,10 +3024,10 @@ document.body.prepend(renderer.domElement);
 // ------------------------------------------------------------
 const STAGE_SECONDS = 25;
 const PALETTES = [
-    { name: 'NEON CITY', top: 0x0b0630, horizon: 0x7a1fa8, lane: 0x4be1ff, border: 0x63f8cf },
-    { name: 'SUNSET',    top: 0x1a0626, horizon: 0xff6a3d, lane: 0xffb347, border: 0xff4d8d },
-    { name: 'TOXIC',     top: 0x041a12, horizon: 0x2fbf4a, lane: 0xb6ff3d, border: 0xc56cf0 },
-    { name: 'GLACIER',   top: 0x06142e, horizon: 0x3d8bff, lane: 0xbfe9ff, border: 0x7df9ff },
+    { name: 'NEON CITY', top: 0x0b0630, horizon: 0x7a1fa8, lane: 0x4be1ff, border: 0xb4ecd7, accent: 0x63f8cf },
+    { name: 'SUNSET',    top: 0x1a0626, horizon: 0xff6a3d, lane: 0xffb347, border: 0xf75a84, accent: 0xff4d8d },
+    { name: 'TOXIC',     top: 0x041a12, horizon: 0x2fbf4a, lane: 0xb6ff3d, border: 0xc084d8, accent: 0xc56cf0 },
+    { name: 'GLACIER',   top: 0x06142e, horizon: 0x3d8bff, lane: 0xbfe9ff, border: 0xbeeff2, accent: 0x7df9ff },
 ];
 const skyUniforms = {
     topColor: { value: new THREE.Color(PALETTES[0].top) },
@@ -3101,7 +3119,7 @@ const roadLineMaterial = new THREE.MeshStandardMaterial({
     color: PALETTES[0].lane, roughness: 0.6, emissive: PALETTES[0].lane, emissiveIntensity: 0.45
 });
 const borderMaterial = new THREE.MeshStandardMaterial({
-    color: 0x63f8cf, emissive: 0x63f8cf, emissiveIntensity: 0.5, roughness: 0.3
+    color: PALETTES[0].border, emissive: PALETTES[0].border, emissiveIntensity: 0.5, roughness: 0.3
 });
 const ballMaterial = new THREE.MeshStandardMaterial({
     color: 0xffffff, roughness: 0.2, metalness: 0.5
@@ -3758,7 +3776,9 @@ function setChaseHUD(text) {
 
 // 매 프레임(플레이 중): 최대 거리 갱신 · 아치 세우기/통과 · 최장 거리 선 표시/통과.
 function updateRunMarkers() {
-    if (playerWorldZ > maxDistThisRun) maxDistThisRun = playerWorldZ;
+    // 충돌이 마커보다 먼저 동기적으로 종료/부활 제안을 할 수 있으므로 치명 틱 거리는 기록하지 않음.
+    const isPlaying = gameState === 'playing';
+    if (isPlaying && playerWorldZ > maxDistThisRun) maxDistThisRun = playerWorldZ;
 
     if (!stageGate.active) {
         const remain = STAGE_SECONDS * (stageIndex + 1) - gameTimer;
@@ -3767,7 +3787,7 @@ function updateRunMarkers() {
             stageGate.idx = stageIndex + 1;
             stageGate.z = playerWorldZ + velocity.z * Math.max(0.5, remain);
             const pal = PALETTES[stageGate.idx % PALETTES.length];
-            archMat.color.set(pal.border); archMat.emissive.set(pal.border);
+            archMat.color.set(pal.accent); archMat.emissive.set(pal.accent);
             setLabel(archLabel, 'STAGE ' + (stageGate.idx + 1), '#ffffff');
             stageArch.position.set(0, 0, stageGate.z);
             stageArch.visible = true;
@@ -3783,11 +3803,12 @@ function updateRunMarkers() {
         advanceStage(stageGate.idx);
     }
 
-    if (bestLine.active) {
+    if (isPlaying && bestLine.active) {
         const d = bestLine.z - playerWorldZ;
+        const gain = Math.floor(maxDistThisRun) - bestLine.z;
         if (!bestLine.crossed) {
             bestLineGroup.visible = d < BEST_LINE_SHOW_DIST;
-            if (d <= -1) {   // 기록은 floor(maxDist) > prev 일 때만 갱신 → 1m 넘어야 실제 신기록
+            if (gain >= 1) {   // 기록은 floor(maxDist) > prev 일 때만 갱신 → 1m 넘어야 실제 신기록
                 bestLine.crossed = true;
                 bestLineGroup.visible = false;
                 showBanner('NEW RECORD!', 'FARTHEST RUN', '#ffd23f');
@@ -3798,7 +3819,7 @@ function updateRunMarkers() {
                 setChaseHUD(d <= BEST_CHASE_HUD_DIST ? '🏁 ' + Math.ceil(d) + ' m' : '');
             }
         }
-        if (bestLine.crossed) setChaseHUD('★ +' + Math.max(0, Math.floor(-d)) + ' m');
+        if (bestLine.crossed) setChaseHUD('★ +' + Math.max(0, gain) + ' m');
     }
 }
 
@@ -3823,6 +3844,7 @@ function resetF2RunState() {
     for (const s of shards) { s.active = false; s.mesh.visible = false; }
     const host = document.getElementById('score-popups');
     if (host) host.querySelectorAll('.score-popup.world').forEach(el => el.remove());
+    if (host) host.querySelectorAll('.score-popup.award').forEach(el => el.remove());
     feverWarnStep = 0;
     setFeverLook(false);
     stageGate.active = false;
@@ -4087,10 +4109,10 @@ function updateCubeText(cube) {
 // 공 수가 바뀔 때마다 다시 칠한다 → 픽업 하나로 빨강이 주황으로 바뀌는 게 눈에 보인다.
 // ------------------------------------------------------------
 const AFFORD_COLORS = [
-    new THREE.Color(0x3dff8a),   // cheap
+    new THREE.Color(0x06ffb0),   // cheap
     new THREE.Color(0xffd23f),   // fair
-    new THREE.Color(0xff8a2a),   // costly
-    new THREE.Color(0xff2d55),   // lethal
+    new THREE.Color(0xfe8a4c),   // costly
+    new THREE.Color(0xf9327c),   // lethal
 ];
 const IRON_BODY_COLOR = new THREE.Color(0x2a2d36);
 function affordTier(hp, balls) {
@@ -4595,16 +4617,45 @@ function updateParticles(dt) {
 // ============================================================
 // SCORE POPUPS
 // ============================================================
-function showScorePopup(amount) {
+// origin(선택): 피버 줄 전멸을 일으킨 직접 타격 큐브의 월드 위치. 화면 안쪽에 정상 투영될 때만
+// 같은 노드를 그 큐브 위 직접 타격 득점 배지("HIT +N")로 바꾼다 — 숫자는 여전히 하나뿐. 아니면 기존 팝업 그대로.
+const AWARD_POPUP_MAX = 2;
+function showScorePopup(amount, origin) {
     const el = document.createElement('div');
     el.className = 'score-popup';
     el.textContent = '' + amount;
 
+    // 기존 지터 난수 1회 — 투영 성공 여부와 무관하게 원래 순서대로 항상 소비한다.
+    const jitter = Math.random();
+
+    let sx = NaN, sy = NaN;
+    if (origin) {
+        _popV.copy(origin);          // 사본만 투영 — 월드 위치·카메라 변환은 건드리지 않는다
+        _popV.project(camera);
+        if (Number.isFinite(_popV.x) && Number.isFinite(_popV.y) && Number.isFinite(_popV.z)
+            && _popV.z >= -1 && _popV.z <= 1) {
+            sx = (_popV.x * 0.5 + 0.5) * 100;
+            sy = (-_popV.y * 0.5 + 0.5) * 100;
+        }
+    }
+    const host = document.getElementById('score-popups');
+    if (sx >= 10 && sx <= 90 && sy >= 25 && sy <= 90) {
+        el.classList.add('award');
+        el.textContent = 'HIT +' + amount;
+        el.style.left = sx.toFixed(1) + '%';
+        el.style.top = sy.toFixed(1) + '%';
+        const olds = host.querySelectorAll('.score-popup.award');
+        for (let i = 0; i <= olds.length - AWARD_POPUP_MAX; i++) olds[i].remove();
+        host.appendChild(el);
+        setTimeout(() => el.remove(), 650);
+        return;
+    }
+
     // Position near center-top
-    el.style.left = (40 + Math.random() * 20) + '%';
+    el.style.left = (40 + jitter * 20) + '%';
     el.style.top = '15%';
 
-    document.getElementById('score-popups').appendChild(el);
+    host.appendChild(el);
     setTimeout(() => el.remove(), 1300);
 }
 
@@ -4642,7 +4693,9 @@ function checkCollisions() {
                 score += gained;
                 addCombo();
                 cubesBrokenThisRun++;
-                showScorePopup(gained);
+                // F2: 줄 전멸 조건은 여기서 한 번만 계산해 아래 wipeRow 가드와 득점 배지에 그대로 쓴다.
+                const wipeHere = !!(megaBallTimer > 0 && cube.rowId && !(cube.wipeT > 0) && !cube.ghost);
+                showScorePopup(gained, wipeHere ? cube.mesh.position : undefined);
                 spawnParticles(cube.mesh.position, cube.mesh.material.color, 15);
                 cube.active = false;
                 cube.mesh.visible = false;
@@ -4650,7 +4703,7 @@ function checkCollisions() {
                 cameraShake = Math.min(cameraShake + 0.05, 0.3);
                 if (!cube.ghost) spawnShards(cube.mesh.position, cube.mesh.material.color, 4);
                 // F2: 메가(피버) 상태면 같은 줄의 나머지 칸이 번지며 터진다 — 연출 전용.
-                if (megaBallTimer > 0 && cube.rowId && !(cube.wipeT > 0) && !cube.ghost) wipeRow(cube);
+                if (wipeHere) wipeRow(cube);
                 continue;
             }
 
@@ -6151,7 +6204,7 @@ function advanceStage(idx) {
     paletteFrom = { top: skyUniforms.topColor.value.getHex(), horizon: skyUniforms.horizonColor.value.getHex(),
                     lane: roadLineMaterial.color.getHex(), border: borderMats[0] ? borderMats[0].color.getHex() : pal.border };
     paletteTo = pal; paletteT = 0;
-    showBanner('STAGE ' + (idx + 1), pal.name, '#' + new THREE.Color(pal.border).getHexString());
+    showBanner('STAGE ' + (idx + 1), pal.name, '#' + new THREE.Color(pal.accent).getHexString());
     playNotes([523.25, 659.25, 783.99, 1046.5], 0.085, 'triangle', 0.1);
     if (window.SB) SB.vibrate('medium');
 }
