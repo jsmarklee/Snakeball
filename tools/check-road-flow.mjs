@@ -13,33 +13,64 @@
  * **소스에서 직접 읽어** 판정한다. 상수를 여기로 옮겨 적으면 소스가 바뀌어도 낡은
  * 값을 통과시키므로 전부 index.html 에서 파싱한다. 못 읽으면 통과가 아니라 실패다.
  */
-import { readFileSync } from 'node:fs';
+import { openWorldSource, VECTOR_MUTATORS } from './check-world-source.mjs';
 
-const src = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
 const fail = [];
 const note = [];
 
-const grab = (re, what) => {
-  const m = src.match(re);
-  if (!m) { fail.push(`[읽기] ${what} 를 소스에서 찾지 못했다 — 관문이 낡았거나 코드가 옮겨졌다`); return null; }
-  return m[1];
-};
+function die(msg) {
+  console.error(`check:road 중단 — ${msg}\n  파서가 못 따라간 것이지 통과가 아니다.`);
+  process.exit(1);
+}
+
+const w = await openWorldSource(new URL('../index.html', import.meta.url), die);
+const palettes = w.palettes();
 
 // [1] 노면에 눈금 텍스처가 실제로 걸려 있는가.
-if (!/roadMaterial\s*=\s*new THREE\.MeshStandardMaterial\(\{[^}]*map:\s*roadTexture/s.test(src)) {
+const roadTex = w.requireConst('roadTexture', 'CallExpression');
+if (!w.isId(roadTex.callee, 'makeRoadTexture') || roadTex.arguments.length) w.fail(roadTex, 'roadTexture 는 makeRoadTexture() 여야 한다');
+if (!w.isId(w.material('roadMaterial').props.get('map'), 'roadTexture')) {
   fail.push('[1] roadMaterial 에 map 이 없다 — 노면이 단색이면 전진해도 아무것도 다가오지 않는다');
 }
 
 // [2] 눈금이 **실제 이동 거리**에 묶여 있는가 (고정 속도 애니메이션이면 가속이 안 보인다).
-if (!/roadTexture\.offset\.y\s*=\s*-\(\s*ballZ\s*\/\s*RUNG_SPACING\s*\)/.test(src)) {
-  fail.push('[2] offset 이 이동 거리(ballZ)에 묶여 있지 않다 — 속도가 올라도 눈금이 빨라지지 않는다.\n'
-    + '      부호 주의: v=0 이 지평선이므로 offset 은 감소해야 한다. 뒤집으면 후진처럼 보인다.');
+//     모양: 함수 본문 최상위 `const ballZ = playerWorldZ;` 뒤 `roadTexture.offset.y = -(ballZ / RUNG_SPACING) % 1;`
+const offsets = w.nodes.filter((n) => n.type === 'AssignmentExpression' && w.isPath(n.left, 'roadTexture', ['offset', 'y']));
+const anchors = new Set(offsets);
+const wrapOk = (n) => {
+  const r = n.right, neg = r.left, d = neg?.argument;
+  return n.operator === '=' && r.type === 'BinaryExpression' && r.operator === '%' && w.isNum(r.right, 1)
+    && neg.type === 'UnaryExpression' && neg.operator === '-' && d.type === 'BinaryExpression' && d.operator === '/'
+    && w.isId(d.left, 'ballZ') && w.isId(d.right, 'RUNG_SPACING');
+};
+const travelOk = (n) => {
+  const st = w.parent(n), blk = st && w.parent(st), fn = blk && w.parent(blk);
+  if (st?.type !== 'ExpressionStatement' || blk?.type !== 'BlockStatement' || !/Function/.test(fn?.type ?? '')) return false;
+  return blk.body.slice(0, blk.body.indexOf(st)).some((s) => s.type === 'VariableDeclaration' && s.kind === 'const'
+    && s.declarations.some((d) => w.isId(d.id, 'ballZ') && w.isId(d.init, 'playerWorldZ')));
+};
+if (offsets.length !== 1) {
+  fail.push(`[2] roadTexture.offset.y 대입이 ${offsets.length}곳이다 — 정확히 한 곳이어야 한다`
+    + offsets.map((n) => `\n      ${w.where(n)}`).join(''));
+} else if (!wrapOk(offsets[0]) || !travelOk(offsets[0])) {
+  fail.push('[2] offset 이 이동 거리(ballZ = playerWorldZ)에 `-(ballZ / RUNG_SPACING) % 1` 로 묶여 있지 않다 — 속도가 올라도 눈금이 빨라지지 않는다.\n'
+    + '      부호 주의: v=0 이 지평선이므로 offset 은 감소해야 한다. 뒤집으면 후진처럼 보인다.\n'
+    + `      ${w.where(offsets[0])}`);
 }
 
 // [3] 눈금 간격이 ROAD_LENGTH 에서 유도되는가 (literal 복사는 조용히 어긋난다).
-if (!/roadTexture\.repeat\.set\(\s*1\s*,\s*ROAD_LENGTH\s*\/\s*RUNG_SPACING\s*\)/.test(src)) {
-  fail.push('[3] repeat 이 ROAD_LENGTH 에서 유도되지 않는다 — 도로 길이를 바꾸면 눈금 간격이 어긋난다');
+const repeats = w.nodes.filter((n) => n.type === 'CallExpression' && w.isPath(n.callee, 'roadTexture', ['repeat', 'set'])
+  && n.arguments.length === 2 && w.isNum(n.arguments[0], 1) && n.arguments[1].type === 'BinaryExpression'
+  && n.arguments[1].operator === '/' && w.isId(n.arguments[1].left, 'ROAD_LENGTH') && w.isId(n.arguments[1].right, 'RUNG_SPACING'));
+if (repeats.length !== 1) {
+  fail.push(`[3] repeat 이 ROAD_LENGTH 에서 유도되지 않는다 — 도로 길이를 바꾸면 눈금 간격이 어긋난다 (roadTexture.repeat.set(1, ROAD_LENGTH / RUNG_SPACING) ${repeats.length}곳)`);
 }
+for (const n of repeats) anchors.add(n);
+
+for (const n of w.writes([
+  { name: 'roadTexture', under: ['offset'], methods: VECTOR_MUTATORS },
+  { name: 'roadTexture', under: ['repeat'], methods: VECTOR_MUTATORS },
+], anchors)) fail.push(`[2/3] roadTexture.offset/repeat 을 기준 대입 밖에서 바꾼다 — ${w.where(n)}`);
 
 // [4] 보이는가. 대비를 계산한다(비텍스트 그래픽 기준 3.0 / 차선은 보조라 1.8).
 const hex = (s2) => parseInt(String(s2).replace('#', ''), 16);
@@ -55,26 +86,36 @@ const cr = (a, b) => {
   return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
 };
 
-const base = grab(/ROAD_BASE_HEX\s*=\s*'(#[0-9a-fA-F]{6})'/, 'ROAD_BASE_HEX');
-const rung = grab(/ROAD_RUNG_HEX\s*=\s*'(#[0-9a-fA-F]{6})'/, 'ROAD_RUNG_HEX');
-const lane = grab(/roadLineMaterial\s*=\s*new THREE\.MeshStandardMaterial\(\{\s*color:\s*0x([0-9a-fA-F]{6})/, '차선 색');
+const cssHex = (name) => {
+  const n = w.requireConst(name, 'Literal');
+  if (typeof n.value !== 'string' || !/^#[0-9a-fA-F]{6}$/.test(n.value)) w.fail(n, `${name} 는 '#RRGGBB' 문자열 리터럴이어야 한다`);
+  return n.value;
+};
+const base = cssHex('ROAD_BASE_HEX');
+const rung = cssHex('ROAD_RUNG_HEX');
 
-if (base && rung) {
+{
   const c = cr(hex(base), hex(rung));
   if (c < 3.0) fail.push(`[4] 눈금 대비 ${c.toFixed(2)} < 3.0 — 흘러도 안 보이면 없는 것과 같다 (${base} vs ${rung})`);
   else note.push(`[4] 눈금 대비 ${c.toFixed(2)} (${base} vs ${rung})`);
 }
-if (base && lane) {
-  const c = cr(hex(base), parseInt(lane, 16));
-  if (c < 1.8) fail.push(`[4] 차선 대비 ${c.toFixed(2)} < 1.8 — 어느 차선에 있는지 안 읽힌다 (#${lane})`);
-  else note.push(`[4] 차선 대비 ${c.toFixed(2)} (#${lane})`);
+// 차선 색은 PALETTES[*].lane 이다 (roadLineMaterial 시작값·applyPalette 경로는 w.palettes() 가 확인).
+for (const p of palettes) {
+  const c = cr(hex(base), parseInt(p.lane, 16));
+  if (c < 1.8) fail.push(`[4] 차선 대비 ${c.toFixed(2)} < 1.8 — 어느 차선에 있는지 안 읽힌다 (${p.name} #${p.lane})`);
+  else note.push(`[4] 차선 대비 ${c.toFixed(2)} (${p.name} #${p.lane})`);
 }
 
 // [5] 눈금 간격이 속도 대비 합리적인가. 초당 지나가는 눈금 수로 판정한다.
-const spacing = Number(grab(/RUNG_SPACING\s*=\s*([\d.]+)/, 'RUNG_SPACING'));
-const vMin = Number(grab(/INITIAL_SPEED\s*=\s*([\d.]+)/, 'INITIAL_SPEED'));
-const vMax = Number(grab(/MAX_SPEED\s*=\s*([\d.]+)/, 'MAX_SPEED'));
-if (spacing && vMin && vMax) {
+const num = (name) => {
+  const n = w.requireConst(name, 'Literal');
+  if (typeof n.value !== 'number' || !(n.value > 0)) w.fail(n, `${name} 는 양수 숫자 리터럴이어야 한다`);
+  return n.value;
+};
+const spacing = num('RUNG_SPACING');
+const vMin = num('INITIAL_SPEED');
+const vMax = num('MAX_SPEED');
+{
   const perSecMin = vMin / spacing, perSecMax = vMax / spacing;
   // 너무 성기면 속도가 안 읽히고, 너무 촘촘하면 원근 압축에서 뭉개져 깜빡임이 된다.
   if (perSecMin < 2) fail.push(`[5] 최저 속도에서 초당 ${perSecMin.toFixed(1)}개 — 너무 성기다 (2 이상)`);

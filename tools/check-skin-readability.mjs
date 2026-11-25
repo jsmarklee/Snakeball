@@ -17,12 +17,13 @@
 // index.html 주석(민트/라임)에서 이미 인지하고 있었지만 판정하는 곳이 없었다.
 
 import { readFileSync } from 'node:fs';
+import { openWorldSource, ARRAY_MUTATORS, COLOR_MUTATORS, MATERIAL_COLOR_MUTATORS } from './check-world-source.mjs';
 
 const SRC = new URL('../index.html', import.meta.url);
 const MIN_WORLD = 22; // 스킨 ↔ 월드 오브젝트 최소 dE76
 const MIN_SKIN = 18;  // 스킨끼리 최소 dE76
+const PICKUPS = ['freeBallItemMaterial', 'megaBallItemMaterial', 'coinMaterial'];
 
-const html = readFileSync(SRC, 'utf8');
 const fails = [];
 
 function die(msg) {
@@ -30,34 +31,131 @@ function die(msg) {
   process.exit(1);
 }
 
-// --- 스킨: 단색만 (color 0xffffff 는 텍스처 스킨이라 색 충돌 대상이 아니다)
-const skinBlock = /const SKINS = \[\n([\s\S]*?)\n\];/.exec(html);
-if (!skinBlock) die('SKINS 배열을 못 찾았다');
-const skins = [];
-for (const line of skinBlock[1].split('\n')) {
-  const id = /id:'(\w+)'/.exec(line);
-  const color = /color:0x([0-9a-fA-F]{6})/.exec(line);
-  const cost = /cost:\{([^}]*)\}/.exec(line);
-  if (id && color) skins.push({ id: id[1], hex: color[1].toLowerCase(), cost: (cost?.[1] ?? '').trim() });
-}
-if (skins.length < 10) die(`스킨을 ${skins.length}종밖에 못 읽었다`);
-const solid = skins.filter((s) => s.hex !== 'ffffff');
+const w = await openWorldSource(SRC, die);
+const html = w.html;
 
-// --- 월드 오브젝트: 큐브 팔레트 + 경계/픽업/코인 머티리얼
-const world = new Map();
-const cubeBlock = /const CUBE_COLORS = \[([\s\S]*?)\n\];/.exec(html);
-if (!cubeBlock) die('CUBE_COLORS 를 못 찾았다');
-[...cubeBlock[1].matchAll(/THREE\.Color\((\d+)\/255, (\d+)\/255, (\d+)\/255\)/g)].forEach((m, i) =>
-  world.set(`cube${i}`, [1, 2, 3].map((k) => Number(m[k]).toString(16).padStart(2, '0')).join('')),
-);
-for (const name of ['borderMaterial', 'freeBallItemMaterial', 'megaBallItemMaterial', 'coinMaterial']) {
-  const at = html.indexOf(`const ${name} = new THREE.MeshStandardMaterial({`);
-  if (at < 0) die(`${name} 를 못 찾았다`);
-  const hex = /color:\s*0x([0-9a-fA-F]{6})/.exec(html.slice(at, at + 400));
-  if (!hex) die(`${name} 의 color 를 못 읽었다`);
-  world.set(name.replace('Material', ''), hex[1].toLowerCase());
+// --- 스킨: 유료(cost 비어 있지 않음) 단색(tex·rainbow 없음)만 비교한다
+const skins = w.elements('SKINS').map((el, i) => {
+  const p = w.props(el, `SKINS[${i}]`);
+  const id = p.get('id');
+  if (!w.isStr(id)) w.fail(id ?? el, `SKINS[${i}].id 는 문자열 리터럴이어야 한다`);
+  const cost = w.props(p.get('cost'), `${id.value}.cost`, el);
+  for (const [k, v] of cost) if (v.type !== 'Literal' || typeof v.value !== 'number') w.fail(v, `${id.value}.cost.${k} 는 숫자 리터럴이어야 한다`);
+  const tex = p.get('tex');
+  if (tex && !w.isStr(tex)) w.fail(tex, `${id.value}.tex 는 문자열 리터럴이어야 한다`);
+  const rainbow = p.get('rainbow');
+  if (rainbow && !(rainbow.type === 'Literal' && rainbow.value === true)) w.fail(rainbow, `${id.value}.rainbow 는 true 리터럴이어야 한다`);
+  return {
+    id: id.value,
+    hex: w.hex(p.get('color'), `${id.value}.color`, el),
+    cost: [...cost].map(([k, v]) => `${k}:${v.value}`).join(','),
+    paid: cost.size > 0,
+    solid: !tex && !rainbow,
+  };
+});
+if (skins.length < 10) die(`스킨을 ${skins.length}종밖에 못 읽었다`);
+const dupId = skins.find((s, i) => skins.findIndex((t) => t.id === s.id) !== i);
+if (dupId) die(`SKINS 에 id '${dupId.id}' 가 두 번 있다`);
+const solid = skins.filter((s) => s.paid && s.solid);
+
+// --- 카탈로그 → 브리지 → 렌더러: 검사한 SKINS 가 실제로 공을 칠하는 것인지 직접 묶는다
+{
+  const skinsB = w.bindingsOf('SKINS')[0];
+  const block = w.parent(skinsB.stmt);
+  const asB = w.bindingsOf('activeSkin');
+  const bad = (node, what) => w.fail(node, `카탈로그↔렌더러 연결이 다르다: ${what}`);
+  if (!w.inModuleIife(skinsB.stmt)) bad(skinsB.id, 'SKINS 는 모듈 IIFE 본문의 const 여야 한다');
+  if (asB.length !== 1 || asB[0].kind !== 'function' || w.parent(asB[0].stmt) !== block)
+    bad(asB[0]?.id, 'activeSkin 은 SKINS 와 같은 IIFE 본문의 유일한 function 선언이어야 한다');
+  const as = asB[0].decl;
+  const r = as.params.length === 0 && as.body.body.length === 1 ? as.body.body[0].argument : null;
+  const f = r?.type === 'LogicalExpression' && r.operator === '||' ? r.left : null;
+  const cmp = f?.type === 'CallExpression' && w.isPath(f.callee, 'SKINS', ['find']) && f.arguments.length === 1 ? f.arguments[0].body : null;
+  const sp = f?.arguments[0].params;
+  const ok = cmp?.type === 'BinaryExpression' && cmp.operator === '===' && sp.length === 1 && sp[0].type === 'Identifier'
+    && w.isPath(cmp.left, sp[0].name, ['id']) && w.isPath(cmp.right, 'state', ['skin'])
+    && r.right.type === 'MemberExpression' && r.right.computed && w.isId(r.right.object, 'SKINS') && w.isNum(r.right.property, 0);
+  if (!ok) bad(as, 'activeSkin 은 `return SKINS.find(s => s.id === state.skin) || SKINS[0];` 여야 한다');
+
+  const sbSet = w.nodes.filter((n) => n.type === 'AssignmentExpression' && w.isPath(n.left, 'window', ['SB']));
+  const sbOk = sbSet.length === 1 && sbSet[0].operator === '=' && w.parent(sbSet[0]).type === 'ExpressionStatement'
+    && w.parent(w.parent(sbSet[0])) === block && sbSet[0].right.type === 'ObjectExpression'
+    && sbSet[0].right.properties.every((p) => p.type === 'Property' && p.kind === 'init' && !p.computed && !p.method)
+    && sbSet[0].right.properties.filter((p) => w.isId(p.key, 'activeSkin') || (w.isStr(p.key) && p.key.value === 'activeSkin'))
+      .length === 1
+    && sbSet[0].right.properties.some((p) => (w.isId(p.key, 'activeSkin') || (w.isStr(p.key) && p.key.value === 'activeSkin'))
+      && w.isId(p.value, 'activeSkin'));
+  if (!sbOk || w.bindingsOf('SB').length || w.bindingsOf('window').length)
+    bad(sbSet[0], 'IIFE 본문의 유일한 `window.SB = { …, activeSkin, … }` (activeSkin 은 위 함수 그대로, SB·window 가려짐 없음) 여야 한다');
+
+  const ap = w.requireFunction('applyActiveSkin');
+  const b = ap.body.body;
+  const sDecl = b[1]?.type === 'VariableDeclaration' && b[1].kind === 'const' && b[1].declarations.length === 1 ? b[1].declarations[0] : null;
+  const mIdxs = b.flatMap((st, i) => i > 1 && st.type === 'VariableDeclaration' && st.kind === 'const' && st.declarations.length === 1
+    && st.declarations[0].id.type === 'Identifier' && w.isPath(st.declarations[0].init, 'mainBallMesh', ['material']) ? [i] : []);
+  const mAt = mIdxs.length === 1 ? mIdxs[0] : -1;
+  const mDecl = mAt > 0 ? b[mAt].declarations[0] : null;
+  const sName = sDecl?.id.type === 'Identifier' ? sDecl.id.name : null;
+  const mName = mDecl?.id.type === 'Identifier' ? mDecl.id.name : null;
+  const guard = b[0]?.type === 'IfStatement' && !b[0].alternate && b[0].test.type === 'UnaryExpression' && b[0].test.operator === '!'
+    && w.isPath(b[0].test.argument, 'window', ['SB'])
+    && (b[0].consequent.type === 'ReturnStatement'
+      || (b[0].consequent.type === 'BlockStatement' && b[0].consequent.body.length === 1 && b[0].consequent.body[0].type === 'ReturnStatement'));
+  const call = sDecl?.init;
+  const setAt = b.filter((st) => {
+    const c = st.type === 'ExpressionStatement' ? st.expression : null;
+    return mName && c?.type === 'CallExpression' && w.isPath(c.callee, mName, ['color', 'setHex']) && c.arguments.length === 1
+      && sName && w.isPath(c.arguments[0], sName, ['color']);
+  });
+  if (!guard || !sName || !mName || call?.type !== 'CallExpression' || !w.isPath(call.callee, 'SB', ['activeSkin']) || call.arguments.length
+    || setAt.length !== 1 || b.indexOf(setAt[0]) < mAt
+    || b.some((st, i) => i > 0 && st.type === 'ReturnStatement' && b.indexOf(setAt[0]) > i))
+    bad(ap, 'applyActiveSkin 본문 최상위에 `if (!window.SB) return;` · `const s = SB.activeSkin();` · '
+      + '`const m = mainBallMesh.material;` · `m.color.setHex(s.color)` 가 순서대로 있어야 한다');
+  if (!w.refsOutside(ap)) bad(ap, 'applyActiveSkin 을 부르는 곳이 없다');
 }
-if (world.size < 8) die(`월드 오브젝트를 ${world.size}종밖에 못 읽었다`);
+
+// --- 월드 오브젝트: AFFORD_COLORS 4 + PALETTES border 4 + 픽업 머티리얼 3
+const world = new Map();
+w.elements('AFFORD_COLORS', 4).forEach((el, i) => world.set(`afford${i}`, w.newColor(el, `AFFORD_COLORS[${i}]`)));
+const palettes = w.palettes();
+palettes.forEach((p, i) => world.set(`border${i}(${p.name})`, p.border));
+for (const name of PICKUPS) {
+  const m = w.material(name);
+  world.set(name.replace('Material', ''), w.hex(m.props.get('color'), `${name}.color`, m.init));
+}
+if (world.size !== 11) die(`월드 오브젝트가 ${world.size}종이다 — 11종이어야 한다`);
+
+// 실제 큐브 칠하기가 AFFORD_COLORS 를 쓰는지 (죽은 복제 표를 검사하지 않도록)
+{
+  const fn = w.requireFunction('paintCube');
+  const cube = fn.params[0];
+  const body = fn.body.body;
+  let mat;
+  const matAt = body.findIndex((st) => st.type === 'VariableDeclaration' && st.kind === 'const' && st.declarations.length === 1
+    && st.declarations[0].id.type === 'Identifier' && cube?.type === 'Identifier'
+    && w.isPath(st.declarations[0].init, cube.name, ['mesh', 'material']) && (mat = st.declarations[0].id.name));
+  const tierAt = body.findIndex((st) => st.type === 'VariableDeclaration' && st.kind === 'const'
+    && st.declarations.some((d) => w.isId(d.id, 'tier')));
+  const copyAt = body.flatMap((st, i) => {
+    const c = st.type === 'ExpressionStatement' ? st.expression : null;
+    const a = c?.arguments?.[0];
+    return c?.type === 'CallExpression' && w.isPath(c.callee, mat, ['color', 'copy']) && c.arguments.length === 1
+      && a.type === 'MemberExpression' && a.computed && w.isId(a.object, 'AFFORD_COLORS') && w.isId(a.property, 'tier') ? [i] : [];
+  });
+  const earlyReturn = body.findIndex((st) => st.type === 'ReturnStatement');
+  if (matAt < 0 || tierAt < 0 || copyAt.length !== 1 || copyAt[0] < Math.max(matAt, tierAt)
+    || (earlyReturn !== -1 && earlyReturn < copyAt[0]))
+    w.fail(fn, 'paintCube 본문 최상위에 `const m = cube.mesh.material` · `const tier = …` 뒤 '
+      + '`m.color.copy(AFFORD_COLORS[tier])` 가 정확히 한 번 있어야 한다');
+  if (!w.refsOutside(fn)) w.fail(fn, 'paintCube 를 부르는 곳이 없다');
+}
+
+w.forbidWrites([
+  { name: 'SKINS', under: [], methods: ARRAY_MUTATORS },
+  { name: 'AFFORD_COLORS', under: [], methods: new Set([...ARRAY_MUTATORS, ...COLOR_MUTATORS]) },
+  ...PICKUPS.map((name) => ({ name, under: ['color'], methods: MATERIAL_COLOR_MUTATORS })),
+], `SKINS · AFFORD_COLORS · ${PICKUPS.map((n) => n + '.color').join(' · ')}`);
 
 // --- CIE Lab dE76
 function lab(hex) {
@@ -122,7 +220,10 @@ for (let i = 0; i < solid.length; i++)
   if (checked === 0) die('.storekit 에서 대조할 상품을 하나도 못 찾았다');
 }
 
-console.log(`스킨 ${skins.length}종(단색 ${solid.length}) · 월드 오브젝트 ${world.size}종 — ${solid.length * world.size + (solid.length * (solid.length - 1)) / 2}쌍 검사`);
+const accents = palettes.filter((p) => p.accent !== undefined).length;
+console.log(`스킨 ${skins.length}종(유료 단색 ${solid.length}: ${solid.map((s) => s.id).join(' ')}) · 월드 오브젝트 ${world.size}종 — ${solid.length * world.size + (solid.length * (solid.length - 1)) / 2}쌍 검사`);
+console.log(`  월드 기준 = AFFORD_COLORS 4 + PALETTES border 4 + ${PICKUPS.join(' · ')}`);
+console.log(`  기준에 넣지 않은 PALETTES 키: lane(check:road 대비 판정) · top · horizon${accents ? ` · accent(${accents}개)` : ''}`);
 if (fails.length) {
   console.error('\n' + fails.join('\n'));
   console.error(`\n❌ check:skins FAIL — ${fails.length}건`);
