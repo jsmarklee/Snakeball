@@ -3193,7 +3193,6 @@ let flickerTimer = 0;
 let megaFlickerTimer = 0;
 let playerWorldZ = 0; // track ball's world position for spawning
 let cameraShake = 0;  // camera shake intensity
-let hitStop = 0;      // seconds of impact-freeze remaining (juice: brief hold on a smash)
 // F4: OS 동작 줄이기 설정. 매 프레임 읽어서 게임 중에 설정을 바꿔도 바로 따른다.
 const _reducedMotionMQ = (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)')) || null;
 function reducedMotion() { return !!(_reducedMotionMQ && _reducedMotionMQ.matches); }
@@ -3231,7 +3230,12 @@ mainBallGroup.add(megaBallMesh);
 // Ball count sprite (attached to ball)
 const ballCountCanvas = document.createElement('canvas');
 ballCountCanvas.width = 128; ballCountCanvas.height = 64;
+const ballCountCtx = ballCountCanvas.getContext('2d');
 const ballCountTexture = new THREE.CanvasTexture(ballCountCanvas);
+// 공 수가 바뀔 때마다(=매 획득·격파) 다시 올리는 텍스처라 밉맵 생성을 끈다. 배지는 화면에서 텍스처(128x64)보다
+// 크거나 비슷하게 그려지므로(픽셀비 상한 2) 밉맵 없이 선형 필터로도 숫자가 똑같이 읽힌다.
+ballCountTexture.generateMipmaps = false;
+ballCountTexture.minFilter = THREE.LinearFilter;
 const ballCountSpriteMat = new THREE.SpriteMaterial({ map: ballCountTexture, transparent: true, depthTest: false });
 const ballCountSprite = new THREE.Sprite(ballCountSpriteMat);
 ballCountSprite.scale.set(1.2, 0.6, 1);
@@ -3246,7 +3250,7 @@ function updateBallCountSprite() {
     // memo is safe.
     if (ballCount === _lastSpriteBallCount) return;
     _lastSpriteBallCount = ballCount;
-    const ctx = ballCountCanvas.getContext('2d');
+    const ctx = ballCountCtx;
     ctx.clearRect(0, 0, 128, 64);
     ctx.fillStyle = '#ffffff';
     ctx.font = 'bold 40px Arial';
@@ -4751,7 +4755,6 @@ function checkCollisions() {
                 cube.mesh.visible = false;
                 playSound('breakCube');
                 cameraShake = 0.1;
-                hitStop = Math.min(0.03 + combo * 0.004, 0.07);   // impact hold, grows with combo
                 hittingCube = false;
                 lastCube = null;
             } else if (shieldActive) {
@@ -4930,7 +4933,6 @@ function checkCollisions() {
             item.active = false;
             item.mesh.visible = false;
             playSound('getMega');
-            hitStop = 0.06;   // punchy hold on the mega pickup
         }
     }
 
@@ -5108,7 +5110,7 @@ function doRevive() {
     didJumpDuringCollision = false;
     lastCube = null;
     hittingCube = false;
-    hitStop = 0;              // a break+death in the same frame would otherwise carry over
+    resetFollowerTrail();     // 공이 밀려난 자리에서 꼬리 기록을 다시 시작(죽기 전 궤적을 쫓지 않게)
     gameState = 'playing';
     gameUI.style.display = 'block';
     touchAreaEl.style.display = 'block';
@@ -5166,8 +5168,12 @@ function activateMegaBall() {
 function updateFollowingBalls() {
     const count = Math.min(ballCount - 1, followingBalls.length);
     for (let i = 0; i < followingBalls.length; i++) {
-        followingBalls[i].active = i < count;
-        followingBalls[i].mesh.visible = i < count;
+        const fb = followingBalls[i];
+        const on = i < count;
+        // 새로 붙은 공은 예전에 꺼질 때의 위치(지난 판·지난 꼬리)에서 날아오지 않고 제자리에서 시작한다.
+        if (on && !fb.active) fb.snapToTrail = true;
+        fb.active = on;
+        fb.mesh.visible = on;
     }
 }
 
@@ -5176,9 +5182,21 @@ const POS_HISTORY_SIZE = 180;
 const xHistory = new Float32Array(POS_HISTORY_SIZE);
 const yHistory = new Float32Array(POS_HISTORY_SIZE);
 let posHistoryIndex = 0;
+// false → 다음 moveFollowingBalls() 가 기록 전체를 현재 공 위치로 채운다.
+// 새 판·부활·꼬리가 비었다가 다시 생길 때, 그 사이 낡은 궤적을 쫓지 않게 한다.
+let posHistoryLive = false;
+function resetFollowerTrail() { posHistoryLive = false; }
 
 function moveFollowingBalls(dt) {
-    if (!followingBalls[0].active) return;
+    if (!followingBalls[0].active) { posHistoryLive = false; return; }
+
+    if (!posHistoryLive) {
+        xHistory.fill(mainBallGroup.position.x);
+        yHistory.fill(mainBallGroup.position.y);
+        posHistoryIndex = POS_HISTORY_SIZE;   // 모든 지연 칸이 곧바로 유효(histIdx >= 0)
+        posHistoryLive = true;
+        for (const fb of followingBalls) if (fb.active) fb.snapToTrail = true;
+    }
 
     // Record main ball X and Y into history
     xHistory[posHistoryIndex % POS_HISTORY_SIZE] = mainBallGroup.position.x;
@@ -5197,11 +5215,17 @@ function moveFollowingBalls(dt) {
         const histIdx = posHistoryIndex - 1 - delay;
 
         if (histIdx >= 0) {
-            // F2: 한 줄 꼬리 → 좌우로 엇갈린 두 줄(같은 30개가 더 두툼한 무리로 보인다).
-            const targetX = xHistory[histIdx % POS_HISTORY_SIZE] + ((i % 2) ? 0.2 : -0.2);
+            // 한 줄 꼬리: 공이 지나간 X 를 그대로 따른다(예전 ±0.2 좌우 엇갈림은 지그재그로 보여 제거).
+            const targetX = xHistory[histIdx % POS_HISTORY_SIZE];
             const targetY = yHistory[histIdx % POS_HISTORY_SIZE];
-            pos.x = pos.x + (targetX - pos.x) * lerpSpeed;
-            pos.y = pos.y + (targetY - pos.y) * lerpSpeed;
+            if (fb.snapToTrail) {
+                pos.x = targetX;
+                pos.y = targetY;
+                fb.snapToTrail = false;
+            } else {
+                pos.x = pos.x + (targetX - pos.x) * lerpSpeed;
+                pos.y = pos.y + (targetY - pos.y) * lerpSpeed;
+            }
         }
 
         pos.z = mainBallGroup.position.z - 0.1 - 0.3 * ballScaleCur - 0.12 * i;
@@ -5489,11 +5513,23 @@ pauseScreen.querySelector('#pause-quit').addEventListener('click', quitToMenu);
 const megaTimerWrap = document.getElementById('mega-timer-wrap');
 const megaTimerBar = document.getElementById('mega-timer-bar');
 
+// updateUI() 는 매 프레임 돈다. 같은 값을 textContent/style 에 다시 쓰면 텍스트 노드 교체·스타일 무효화가
+// 매 프레임 생기므로, 값이 바뀐 프레임에만 쓴다(화면에 보이는 값은 그대로).
+function setTextIfChanged(el, text) {
+    if (el.textContent !== text) el.textContent = text;
+}
+function setStyleIfChanged(el, prop, value) {
+    if (el.style[prop] !== value) el.style[prop] = value;
+}
+const MEGA_BAR_GOLD = 'linear-gradient(90deg, #ffaa00, #ffdd44)';
+const MEGA_BAR_RED = 'linear-gradient(90deg, #ff4444, #ff8844)';
+let _megaBarBg = '';   // 마지막으로 쓴 배경 — style.background 는 브라우저가 정규화해 돌려주므로 직접 비교하지 않는다
+
 function updateUI() {
     const currentScore = score + Math.floor(gameTimer);
-    scoreDisplay.textContent = currentScore;
-    ballCountDisplay.textContent = 'BALLS: ' + ballCount;
-    ballCountDisplay.style.display = '';
+    setTextIfChanged(scoreDisplay, '' + currentScore);
+    setTextIfChanged(ballCountDisplay, 'BALLS: ' + ballCount);
+    setStyleIfChanged(ballCountDisplay, 'display', '');
     if (ballCount > ballCountPeak) ballCountPeak = ballCount;
     updateSizeTier();
     updateBallCountSprite();
@@ -5501,19 +5537,14 @@ function updateUI() {
 
     // Mega ball timer bar
     if (megaBallTimer > 0) {
-        megaTimerWrap.style.display = 'block';
+        setStyleIfChanged(megaTimerWrap, 'display', 'block');
         const pct = (megaBallTimer / MEGA_BALL_DURATION) * 100;
-        megaTimerBar.style.width = pct + '%';
+        megaTimerBar.style.width = pct + '%';   // 피버 중엔 매 프레임 실제로 줄어든다
         // Flash when almost done
-        if (megaBallTimer < 2) {
-            megaTimerBar.style.background = Math.floor(megaBallTimer * 8) % 2 === 0
-                ? 'linear-gradient(90deg, #ff4444, #ff8844)'
-                : 'linear-gradient(90deg, #ffaa00, #ffdd44)';
-        } else {
-            megaTimerBar.style.background = 'linear-gradient(90deg, #ffaa00, #ffdd44)';
-        }
+        const bg = (megaBallTimer < 2 && Math.floor(megaBallTimer * 8) % 2 === 0) ? MEGA_BAR_RED : MEGA_BAR_GOLD;
+        if (bg !== _megaBarBg) { megaTimerBar.style.background = bg; _megaBarBg = bg; }
     } else {
-        megaTimerWrap.style.display = 'none';
+        setStyleIfChanged(megaTimerWrap, 'display', 'none');
     }
 }
 
@@ -5672,6 +5703,7 @@ function resetGameState() {
         fb.mesh.visible = false;
         fb.mesh.position.set(0, 0, -1);
     }
+    resetFollowerTrail();
 }
 
 let lastRunBaseCoins = 0;
@@ -6156,7 +6188,6 @@ function chargeFever() {
         activateMegaBall();
         showBanner('FEVER!', 'SMASH EVERYTHING', '#ff3df0');
         playSound('getMega');
-        hitStop = 0.06;
         cameraShake = Math.max(cameraShake, 0.25);
         if (window.SB) SB.vibrate('heavy');
     }
@@ -6407,14 +6438,8 @@ function update() {
 
     const dt = Math.min(clock.getDelta(), 0.05);
 
-    // Hit-stop: freeze the whole playing frame for a few ms on a solid smash. The last
-    // rendered frame persists (we skip sim+render), giving the impact a crisp "hold".
-    // getDelta() above already consumed this tick, so no dt spike when the freeze ends.
-    // Clear on any non-playing state rather than at each reset site: breaking a cube and
-    // dying in the same checkCollisions() pass leaves hitStop set, and it would otherwise
-    // survive revive/result/menu and freeze the first frames of the next run.
-    if (gameState !== 'playing') hitStop = 0;
-    else if (hitStop > 0) { hitStop -= dt; return; }
+    // 예전엔 일반 격파·메가 획득·피버 발동마다 루프 전체를 30~70ms(실기 iPad 프레임 기준 66~100ms) 건너뛰는 hit-stop 이 있었다.
+    // 실기기에서 "획득할 때마다 멈칫" 으로 읽혀 제거했다 — 타격감은 ballPunch·크기 번쩍임·흔들림·파편이 맡는다.
 
     if (gameState === 'playing' || gameState === 'tutorial') {
         // Tutorial logic
@@ -6646,7 +6671,7 @@ function update() {
         // Camera shake decay
         if (cameraShake > 0) cameraShake *= Math.max(0, 1 - dt * 12);
         if (cameraShake < 0.001) cameraShake = 0;
-        // F4: OS "동작 줄이기"(prefers-reduced-motion)면 화면 흔들림을 끈다 — 타격은 파편·소리·멈칫으로 남는다.
+        // F4: OS "동작 줄이기"(prefers-reduced-motion)면 화면 흔들림을 끈다 — 타격은 파편·소리·공 펀치로 남는다.
         const shakeAmt = reducedMotion() ? 0 : cameraShake;
         const shakeX = shakeAmt * (Math.random() - 0.5) * 2;
         const shakeY = shakeAmt * (Math.random() - 0.5) * 2;
@@ -6768,7 +6793,7 @@ window.addEventListener('resize', () => {
 // ============================================================
 // FIRST-IMPACT SHADER PREWARM (menu only)
 // 실기 iPad: 첫 큐브 파괴 때 파티클·파편 셰이더가 처음 쓰이며 r160 의 프로그램 조회(getUniforms 등)가
-// 링크 완료를 동기로 기다려 ~800ms 멈췄다(의도된 hitStop 과는 별개). 메뉴에서 같은 재질·지오메트리를
+// 링크 완료를 동기로 기다려 ~800ms 멈췄다(지금은 제거된 hit-stop 과는 별개). 메뉴에서 같은 재질·지오메트리를
 // 공유하는 복제 메시 1개씩을 renderer.compile 로 비동기 컴파일해 두고, KHR_parallel_shader_compile 의
 // isReady() 가 참이 된 뒤에만 기존 렌더 한 번에 끼워 그린다. 메뉴를 떠나거나·1.5초가 지나거나·
 // 컨텍스트를 잃으면 그냥 버린다(동기 대체 경로 없음). API 가 없거나 실패해도 조용히 건너뛴다.
